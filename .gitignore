@@ -1,0 +1,143 @@
+#include <LiquidCrystal.h>
+#include <EEPROM.h>
+
+// Configuração dos pinos do LCD conforme a imagem
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+
+// Definição dos estados do Menu
+enum MenuState { MONITORAMENTO, MENU_PRINCIPAL, SUB_MENU };
+MenuState currentState = MONITORAMENTO;
+
+int cursorMenu = 0;
+int cursorSubMenu = 0;
+int totalMenus = 4;
+
+// Nomes dos menus principais
+const char* menuNames[] = {"Mapa Injecao", "Mapa Ignicao", "Funcoes Esp.", "Configuracao"};
+
+// Estrutura para os submenus
+const char* subMenus[][4] = {
+  {"Inj. MAP", "Acel. Rapida", "Temp. Motor", "Temp. Ar"},        // Mapa Injeção
+  {"Ign. MAP", "Lenta", "Temp. Motor", "Temp. Ar"},               // Mapa Ignição
+  {"Lenta PWM", "Limitador", "Launch Control", "Teste"},          // Funções Esp.
+  {"Sinal RPM", "Calibrar IGN", "Calibrar MAP", "Calibrar TPS"}   // Configuração
+};
+
+int subMenuCounts[] = {4, 4, 4, 4};
+
+void setup() {
+  lcd.begin(16, 2);
+  showMonitoramento();
+}
+
+void loop() {
+  int button = readButtons();
+  
+  if (button != -1) {
+    handleNavigation(button);
+    delay(200); // Debounce simples
+  }
+}
+
+// Função para ler os botões analógicos (Pino A0)
+int readButtons() {
+  int val = analogRead(A0);
+  if (val < 50)   return 0; // RIGHT
+  if (val < 150)  return 1; // UP
+  if (val < 300)  return 2; // DOWN
+  if (val < 500)  return 3; // LEFT
+  if (val < 750)  return 4; // SELECT
+  return -1;
+}
+
+void handleNavigation(int btn) {
+  switch (currentState) {
+    
+    case MONITORAMENTO:
+      if (btn == 4) { // SELECT entra no menu
+        currentState = MENU_PRINCIPAL;
+        drawMenu();
+      }
+      break;
+
+    case MENU_PRINCIPAL:
+      if (btn == 1) { // UP
+        cursorMenu = (cursorMenu <= 0) ? totalMenus - 1 : cursorMenu - 1;
+        drawMenu();
+      } else if (btn == 2) { // DOWN
+        cursorMenu = (cursorMenu >= totalMenus - 1) ? 0 : cursorMenu + 1;
+        drawMenu();
+      } else if (btn == 4) { // SELECT
+        currentState = SUB_MENU;
+        cursorSubMenu = 0;
+        drawSubMenu();
+      }
+      break;
+
+    case SUB_MENU:
+      if (btn == 0) { // RIGHT volta ao menu principal
+        currentState = MENU_PRINCIPAL;
+        drawMenu();
+      } else if (btn == 1) { // UP
+        cursorSubMenu = (cursorSubMenu <= 0) ? subMenuCounts[cursorMenu] - 1 : cursorSubMenu - 1;
+        drawSubMenu();
+      } else if (btn == 2) { // DOWN
+        cursorSubMenu = (cursorSubMenu >= subMenuCounts[cursorMenu] - 1) ? 0 : cursorSubMenu + 1;
+        drawSubMenu();
+      } else if (btn == 4) { // SELECT salva e volta
+        executeAction();
+        currentState = MENU_PRINCIPAL;
+        drawMenu();
+      }
+      break;
+  }
+}
+
+// --- Funções de Display ---
+
+void showMonitoramento() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Monitoramento");
+  lcd.setCursor(0, 1);
+  lcd.print("teste");
+}
+
+void drawMenu() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(">Menu Principal");
+  lcd.setCursor(0, 1);
+  lcd.print(menuNames[cursorMenu]);
+}
+
+void drawSubMenu() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(menuNames[cursorMenu]);
+  lcd.setCursor(0, 1);
+  lcd.print(">");
+  lcd.print(subMenus[cursorMenu][cursorSubMenu]);
+}
+
+// --- Ações de Execução / Print solicitados ---
+
+void executeAction() {
+  lcd.clear();
+  lcd.print("Salvando EEPROM");
+  // Aqui entraria a lógica de EEPROM.write(...)
+  delay(800);
+  
+  lcd.setCursor(0, 1);
+  // Lógica específica para os prints solicitados
+  if (cursorMenu == 0) { // Mapa Injeção
+    if (cursorSubMenu == 0) lcd.print("Mapa inje.");
+    if (cursorSubMenu == 1) lcd.print("Acel. rapida");
+  } 
+  else if (cursorMenu == 3 && cursorSubMenu == 0) {
+     lcd.print("Distribuidor"); // Exemplo para o submenu de sinal
+  }
+  // Adicione os outros prints conforme sua necessidade...
+  
+  delay(1000);
+}
