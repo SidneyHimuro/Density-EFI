@@ -4,11 +4,15 @@
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 // ================= RPM =================
-const byte rpmPin = 21;       // INT2
-const byte pulsesPerRev = 60; // RODA FÔNICA 60-2
+const byte rpmPin = 21;
+const byte pulsesPerRev = 58;   // roda fônica 60-2
+const byte INJ_TOOTH = 10;
 
 volatile unsigned long lastPulseMicros = 0;
 volatile unsigned long periodMicros = 0;
+volatile byte toothCount = 0;
+volatile bool armInjection = false;
+
 unsigned int rpm = 0;
 
 // ================= MAP =================
@@ -18,30 +22,27 @@ const int adc_5V = 1023;
 
 float mapBar = 0.0;
 
-// Filtro MAP
-const byte MAP_SAMPLES = 8;
-int mapBuffer[MAP_SAMPLES];
-byte mapIndex = 0;
+// ================= INJETOR =================
+#define INJ_PIN 22
 
-// ================= INJ =================
-float Tinj = 0.0;
+volatile bool injectorOn = false;
+volatile unsigned int injPulseTicksLatched = 0;
+
+float Tinj_calc = 0.0;
+float Tinj_latched = 0.0;
 
 // ================= EIXOS =================
 const int rpmAxis[16] = {
-   500,  800, 1200, 1600,
-  2000, 2500, 3000, 3500,
-  4000, 4500, 5000, 5500,
-  6000, 6500, 7000, 7500
+   500, 800, 1200, 1600, 2000, 2500, 3000, 3500,
+  4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500
 };
 
 const float mapAxis[16] = {
-   0.0, -0.07, -0.14, -0.21,
-  -0.28, -0.35, -0.42, -0.49,
-  -0.56, -0.63, -0.70, -0.77,
-  -0.84, -0.91, -0.96, -1.0
+   0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,
+  -0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0
 };
 
-// ================= TABELA 16x16 (ms) =================
+// ================= TABELA (EXEMPLO) =================
 float injTable[16][16] = {
  {1.2,1.1,1.0,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.5,0.5,0.5,0.5,0.5},
  {1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.6,0.6},
@@ -64,67 +65,99 @@ float injTable[16][16] = {
 // ================= INTERPOLAÇÃO =================
 float interp2D(int rpmVal, float mapVal) {
   byte iR = 0, iM = 0;
-
   while (iR < 15 && rpmVal > rpmAxis[iR + 1]) iR++;
   while (iM < 15 && mapVal < mapAxis[iM + 1]) iM++;
 
-  float r1 = rpmAxis[iR];
-  float r2 = rpmAxis[iR + 1];
-  float m1 = mapAxis[iM];
-  float m2 = mapAxis[iM + 1];
+  float fr = (float)(rpmVal - rpmAxis[iR]) / (rpmAxis[iR + 1] - rpmAxis[iR]);
+  float fm = (float)(mapVal - mapAxis[iM]) / (mapAxis[iM + 1] - mapAxis[iM]);
 
-  float q11 = injTable[iR][iM];
-  float q21 = injTable[iR + 1][iM];
-  float q12 = injTable[iR][iM + 1];
-  float q22 = injTable[iR + 1][iM + 1];
-
-  float fr = (rpmVal - r1) / (r2 - r1);
-  float fm = (mapVal - m1) / (m2 - m1);
-
-  float a = q11 + fr * (q21 - q11);
-  float b = q12 + fr * (q22 - q12);
+  float a = injTable[iR][iM]     + fr * (injTable[iR + 1][iM]     - injTable[iR][iM]);
+  float b = injTable[iR][iM + 1] + fr * (injTable[iR + 1][iM + 1] - injTable[iR][iM + 1]);
 
   return a + fm * (b - a);
 }
 
-// ================= ISR =================
+// ================= RPM ISR =================
 void rpmISR() {
   unsigned long now = micros();
   periodMicros = now - lastPulseMicros;
   lastPulseMicros = now;
+
+  toothCount++;
+  if (toothCount >= pulsesPerRev) toothCount = 0;
+
+  if (toothCount == INJ_TOOTH) {
+    armInjection = true;
+  }
 }
 
+// ================= TIMER3 ISR =================
+ISR(TIMER3_COMPA_vect) {
+  digitalWrite(INJ_PIN, LOW);
+  injectorOn = false;
+  TIMSK3 &= ~(1 << OCIE3A);
+}
+
+// ================= SETUP =================
 void setup() {
   lcd.begin(16, 2);
+
   pinMode(rpmPin, INPUT_PULLUP);
+  pinMode(INJ_PIN, OUTPUT);
+  digitalWrite(INJ_PIN, LOW);
+
   attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
+
+  // Timer3 → prescaler 8 → 0.5 µs por tick
+  TCCR3A = 0;
+  TCCR3B = (1 << WGM32) | (1 << CS31);
 }
 
+// ================= LOOP =================
 void loop() {
-  // RPM
-  if (periodMicros > 0)
+
+  // ---------- RPM ----------
+  if (periodMicros > 0 && (micros() - lastPulseMicros) < 300000)
     rpm = 60000000UL / (periodMicros * pulsesPerRev);
+  else
+    rpm = 0;
 
-  // MAP filtrado
-  mapBuffer[mapIndex++] = analogRead(mapPin);
-  if (mapIndex >= MAP_SAMPLES) mapIndex = 0;
-
-  long sum = 0;
-  for (byte i = 0; i < MAP_SAMPLES; i++) sum += mapBuffer[i];
-  int mapADC = sum / MAP_SAMPLES;
-
+  // ---------- MAP ----------
+  int mapADC = analogRead(mapPin);
   if (mapADC <= adc_1V) mapBar = 0.0;
   else if (mapADC >= adc_5V) mapBar = -1.0;
-  else mapBar = - (float)(mapADC - adc_1V) / (adc_5V - adc_1V);
+  else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
 
-  // TABELA
-  Tinj = interp2D(rpm, mapBar);
+  // ---------- CALC Tinj ----------
+  if (rpm > 0)
+    Tinj_calc = interp2D(rpm, mapBar);
+  else
+    Tinj_calc = 0.0;
 
-  // LCD
+  // ---------- DISPARO ----------
+  if (armInjection && rpm > 0 && !injectorOn) {
+    armInjection = false;
+
+    // LATCH (CRÍTICO!)
+    Tinj_latched = Tinj_calc;
+    injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
+
+    if (injPulseTicksLatched < 50) return;
+
+    digitalWrite(INJ_PIN, HIGH);
+    injectorOn = true;
+
+    TCNT3 = 0;
+    OCR3A = injPulseTicksLatched;
+    TIFR3 |= (1 << OCF3A);
+    TIMSK3 |= (1 << OCIE3A);
+  }
+
+  // ---------- LCD ----------
   static unsigned long tLCD = 0;
   if (millis() - tLCD > 100) {
     lcd.setCursor(0, 0);
-    lcd.print("RPM:    ");
+    lcd.print("RPM:     ");
     lcd.setCursor(4, 0);
     lcd.print(rpm);
 
@@ -132,9 +165,10 @@ void loop() {
     lcd.print("MAP:     ");
     lcd.setCursor(4, 1);
     lcd.print(mapBar, 2);
+
     lcd.setCursor(10, 1);
     lcd.print("T:");
-    lcd.print(Tinj, 2);
+    lcd.print(Tinj_latched, 2);
 
     tLCD = millis();
   }
