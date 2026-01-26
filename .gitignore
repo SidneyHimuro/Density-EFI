@@ -2,141 +2,158 @@ import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
-
 import serial
 import threading
 import time
 
-# ===================== CONFIG SERIAL =====================
-SERIAL_PORT = "COM7"     # <<< MUDE AQUI
+# ================= CONFIG SERIAL =================
+SERIAL_PORT = "COM7"
 SERIAL_BAUD = 115200
 
-# ===================== DADOS GLOBAIS =====================
-serial_data = {
-    "RPM": 0,
-    "MAP": 0.0,
-    "TPS": 0.0,
-    "TINJ": 0.0
-}
+serial_data = {"RPM": 0, "MAP": 0.0, "TPS": 0.0, "TINJ": 0.0}
 
-# ===================== THREAD SERIAL =====================
 def serial_reader():
     global serial_data
-
     try:
         ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=1)
-        time.sleep(2)
-        print(f"[SERIAL] Conectado em {SERIAL_PORT}")
-
         while True:
             line = ser.readline().decode(errors="ignore").strip()
-            if not line:
-                continue
-
-            parts = line.split(",")
-            if len(parts) != 4:
-                continue
-
-            try:
-                serial_data["RPM"]  = float(parts[0])
-                serial_data["MAP"]  = float(parts[1])
-                serial_data["TPS"]  = float(parts[2])
-                serial_data["TINJ"] = float(parts[3])
-            except ValueError:
-                pass
-
+            if line:
+                parts = line.split(",")
+                if len(parts) == 4:
+                    try:
+                        serial_data["RPM"]  = float(parts[0])
+                        serial_data["MAP"]  = float(parts[1])
+                        serial_data["TPS"]  = float(parts[2])
+                        serial_data["TINJ"] = float(parts[3])
+                    except: pass
     except Exception as e:
-        print("[SERIAL] Erro:", e)
+        print(f"Erro Serial: {e}")
 
-# ===================== DASH APP =====================
-app = dash.Dash(__name__)
-app.title = "Dash700 Speeduino"
-
-# Inicia thread serial
 threading.Thread(target=serial_reader, daemon=True).start()
 
-# ===================== GAUGE RPM =====================
-def rpm_gauge(value):
-    return go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=value,
-        number={"font": {"size": 48}},
-        gauge={
-            "axis": {"range": [0, 8000]},
-            "bar": {"thickness": 0.25},
-            "steps": [
-                {"range": [0, 3000], "color": "#2ecc71"},
-                {"range": [3000, 6000], "color": "#f1c40f"},
-                {"range": [6000, 8000], "color": "#e74c3c"},
-            ],
-            "threshold": {
-                "line": {"color": "red", "width": 4},
-                "thickness": 0.75,
-                "value": 6500
-            }
-        },
-        title={"text": "RPM"}
+# ================= COMPONENTES VISUAIS =================
+
+def create_rpm_bar(value):
+    max_rpm = 8000
+    color = "#2ecc71" # Verde
+    if value > 4500: color = "#f1c40f" # Amarelo
+    if value > 5200: color = "#e74c3c" # Vermelho
+
+    fig = go.Figure(go.Bar(
+        x=[value],
+        y=["RPM"],
+        orientation='h',
+        marker=dict(color=color, line=dict(color="#222", width=1)),
+        width=0.8
     ))
 
-# ===================== LAYOUT =====================
-app.layout = html.Div(
-    style={
-        "backgroundColor": "#111",
-        "color": "white",
-        "fontFamily": "Arial"
-    },
-    children=[
-
-        html.H2("Dash700 – Speeduino Style", style={"textAlign": "center"}),
-
-        dcc.Graph(
-            id="rpm-gauge",
-            figure=rpm_gauge(0),
-            style={"height": "420px"}
-        ),
-
-        html.Div(
-            style={
-                "display": "flex",
-                "justifyContent": "space-around",
-                "marginTop": "10px"
-            },
-            children=[
-                html.Div(id="map-box", style={"fontSize": "22px"}),
-                html.Div(id="tps-box", style={"fontSize": "22px"}),
-                html.Div(id="tinj-box", style={"fontSize": "22px"}),
-            ]
-        ),
-
-        dcc.Interval(
-            id="update-interval",
-            interval=100,   # 10 Hz
-            n_intervals=0
-        )
-    ]
-)
-
-# ===================== CALLBACK =====================
-@app.callback(
-    Output("rpm-gauge", "figure"),
-    Output("map-box", "children"),
-    Output("tps-box", "children"),
-    Output("tinj-box", "children"),
-    Input("update-interval", "n_intervals")
-)
-def update_dashboard(n):
-    rpm  = serial_data["RPM"]
-    map_ = serial_data["MAP"]
-    tps  = serial_data["TPS"]
-    tinj = serial_data["TINJ"]
-
-    return (
-        rpm_gauge(rpm),
-        f"MAP: {map_:.2f} bar",
-        f"TPS: {tps:.0f} %",
-        f"Tinj: {tinj:.2f} ms"
+    fig.update_layout(
+        xaxis=dict(range=[0, max_rpm], showgrid=False, zeroline=False, 
+                   tickfont=dict(color="white", size=18, family="Arial Black")),
+        yaxis=dict(visible=False),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(l=10, r=10, t=5, b=5),
+        height=120,
     )
+    return fig
 
-# ===================== MAIN =====================
+def create_card_content(title, value, unit, color):
+    return [
+        html.Div(title.upper(), style={
+            "fontSize": "22px", 
+            "color": "#AAA", 
+            "fontWeight": "900",
+            "marginBottom": "10px"
+        }),
+        html.Div([
+            html.Span(f"{value}", style={
+                "fontSize": "64px", 
+                "fontWeight": "bold", 
+                "color": "white"
+            }),
+            html.Span(f" {unit}", style={
+                "fontSize": "24px", 
+                "color": color, 
+                "fontWeight": "bold",
+                "marginLeft": "10px"
+            })
+        ])
+    ]
+
+# ================= LAYOUT DASH =================
+
+app = dash.Dash(__name__)
+
+app.layout = html.Div(style={
+    "backgroundColor": "#000", 
+    "color": "white", 
+    "minHeight": "100vh", 
+    "padding": "30px",
+    "fontFamily": "Arial, sans-serif"
+}, children=[
+    
+    # RPM SECTION
+    html.Div(style={
+        "border": "3px solid #444", 
+        "borderRadius": "12px", 
+        "padding": "20px", 
+        "marginBottom": "30px",
+        "backgroundColor": "#050505"
+    }, children=[
+        html.Div("RPM", style={
+            "textAlign": "center", 
+            "fontSize": "28px", 
+            "fontWeight": "bold", 
+            "color": "white",
+            "marginBottom": "10px"
+        }),
+        dcc.Graph(id="rpm-bar-graph", config={'displayModeBar': False}),
+    ]),
+
+    # CARDS SECTION
+    html.Div(style={
+        "display": "flex", 
+        "justifyContent": "center", 
+        "gap": "20px",
+        "flexWrap": "nowrap" # Mantém na mesma linha se houver espaço
+    }, children=[
+        html.Div(id="map-card", style={
+            "flex": "1", "border": "3px solid #3498db", "borderRadius": "12px", 
+            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
+        }),
+        html.Div(id="tps-card", style={
+            "flex": "1", "border": "3px solid #f39c12", "borderRadius": "12px", 
+            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
+        }),
+        html.Div(id="tinj-card", style={
+            "flex": "1", "border": "3px solid #9b59b6", "borderRadius": "12px", 
+            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
+        }),
+    ]),
+
+    dcc.Interval(id="ui-update-interval", interval=100)
+])
+
+# ================= CALLBACKS =================
+
+@app.callback(
+    Output("rpm-bar-graph", "figure"),
+    Output("map-card", "children"),
+    Output("tps-card", "children"),
+    Output("tinj-card", "children"),
+    Input("ui-update-interval", "n_intervals")
+)
+def refresh_ui(n):
+    rpm_fig = create_rpm_bar(serial_data["RPM"])
+    
+    # Formatação do MAP em bar com x.xx
+    map_content = create_card_content("MAP", f"{serial_data['MAP']:.2f}", "bar", "#3498db")
+    tps_content = create_card_content("TPS", f"{int(serial_data['TPS'])}", "%", "#f39c12")
+    tinj_content = create_card_content("Tinj", f"{serial_data['TINJ']:.2f}", "ms", "#9b59b6")
+    
+    return rpm_fig, map_content, tps_content, tinj_content
+
 if __name__ == "__main__":
     app.run(debug=False)
