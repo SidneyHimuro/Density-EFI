@@ -1,72 +1,142 @@
-#include <LiquidCrystal.h>
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.graph_objects as go
 
-// Pinos utilizados pelo LCD Keypad Shield (Padrão)
-// RS = D8, EN = D9, D4 = D4, D5 = D5, D6 = D6, D7 = D7
-LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
+import serial
+import threading
+import time
 
-// Definição dos Pinos Analógicos para os Sensores no Mega
-const int pinoMAP = A1;
-const int pinoTPS = A2;
-const int pinoECT = A3;
-const int pinoIAT = A4;
-const int pinoRPM = 2; // Usando interrupção para RPM (Pino D2)
+# ===================== CONFIG SERIAL =====================
+SERIAL_PORT = "COM7"     # <<< MUDE AQUI
+SERIAL_BAUD = 115200
 
-// Variáveis de controle
-volatile int pulsosRPM = 0;
-unsigned long tempoAnterior = 0;
-int rpm = 0;
-
-void setup() {
-  lcd.begin(16, 2);
-  lcd.print("Iniciando Monitor");
-  delay(1000);
-  lcd.clear();
-
-  // Configuração do RPM via interrupção (subida de sinal)
-  pinMode(pinoRPM, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(pinoRPM), contarPulso, RISING);
+# ===================== DADOS GLOBAIS =====================
+serial_data = {
+    "RPM": 0,
+    "MAP": 0.0,
+    "TPS": 0.0,
+    "TINJ": 0.0
 }
 
-void loop() {
-  // 1. Cálculo de RPM (atualizado a cada 1 segundo)
-  if (millis() - tempoAnterior >= 1000) {
-    detachInterrupt(digitalPinToInterrupt(pinoRPM)); // Pausa para cálculo
-    rpm = (pulsosRPM * 60); // Ajuste conforme a qtd de pulsos por volta
-    pulsosRPM = 0;
-    tempoAnterior = millis();
-    attachInterrupt(digitalPinToInterrupt(pinoRPM), contarPulso, RISING);
-  }
+# ===================== THREAD SERIAL =====================
+def serial_reader():
+    global serial_data
 
-  // 2. Leitura dos Sensores (Simples conversão de 0-1023)
-  // Obs: Para valores reais, deve-se aplicar as fórmulas de cada sensor.
-  int valMAP = analogRead(pinoMAP);
-  int valTPS = map(analogRead(pinoTPS), 0, 1023, 0, 100); // Exemplo em %
-  int valECT = analogRead(pinoECT);
-  int valIAT = analogRead(pinoIAT);
+    try:
+        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=1)
+        time.sleep(2)
+        print(f"[SERIAL] Conectado em {SERIAL_PORT}")
 
-  // 3. Exibição no LCD (Alternando informações)
-  // Tela 1: RPM e MAP
-  lcd.setCursor(0, 0);
-  lcd.print("RPM: "); lcd.print(rpm); lcd.print("    ");
-  lcd.setCursor(0, 1);
-  lcd.print("MAP: "); lcd.print(valMAP); lcd.print(" TPS:"); lcd.print(valTPS); lcd.print("% ");
+        while True:
+            line = ser.readline().decode(errors="ignore").strip()
+            if not line:
+                continue
 
-  // Opcional: Use os botões do Shield (A0) para trocar de tela
-  int botao = analogRead(A0);
-  if (botao < 50) { // Botão RIGHT pressionado
-     exibirTelaTemperaturas(valECT, valIAT);
-     delay(1000); // Pausa para leitura
-  }
-}
+            parts = line.split(",")
+            if len(parts) != 4:
+                continue
 
-void contarPulso() {
-  pulsosRPM++;
-}
+            try:
+                serial_data["RPM"]  = float(parts[0])
+                serial_data["MAP"]  = float(parts[1])
+                serial_data["TPS"]  = float(parts[2])
+                serial_data["TINJ"] = float(parts[3])
+            except ValueError:
+                pass
 
-void exibirTelaTemperaturas(int ect, int iat) {
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("ECT: "); lcd.print(ect);
-  lcd.setCursor(0, 1);
-  lcd.print("IAT: "); lcd.print(iat);
-}
+    except Exception as e:
+        print("[SERIAL] Erro:", e)
+
+# ===================== DASH APP =====================
+app = dash.Dash(__name__)
+app.title = "Dash700 Speeduino"
+
+# Inicia thread serial
+threading.Thread(target=serial_reader, daemon=True).start()
+
+# ===================== GAUGE RPM =====================
+def rpm_gauge(value):
+    return go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=value,
+        number={"font": {"size": 48}},
+        gauge={
+            "axis": {"range": [0, 8000]},
+            "bar": {"thickness": 0.25},
+            "steps": [
+                {"range": [0, 3000], "color": "#2ecc71"},
+                {"range": [3000, 6000], "color": "#f1c40f"},
+                {"range": [6000, 8000], "color": "#e74c3c"},
+            ],
+            "threshold": {
+                "line": {"color": "red", "width": 4},
+                "thickness": 0.75,
+                "value": 6500
+            }
+        },
+        title={"text": "RPM"}
+    ))
+
+# ===================== LAYOUT =====================
+app.layout = html.Div(
+    style={
+        "backgroundColor": "#111",
+        "color": "white",
+        "fontFamily": "Arial"
+    },
+    children=[
+
+        html.H2("Dash700 – Speeduino Style", style={"textAlign": "center"}),
+
+        dcc.Graph(
+            id="rpm-gauge",
+            figure=rpm_gauge(0),
+            style={"height": "420px"}
+        ),
+
+        html.Div(
+            style={
+                "display": "flex",
+                "justifyContent": "space-around",
+                "marginTop": "10px"
+            },
+            children=[
+                html.Div(id="map-box", style={"fontSize": "22px"}),
+                html.Div(id="tps-box", style={"fontSize": "22px"}),
+                html.Div(id="tinj-box", style={"fontSize": "22px"}),
+            ]
+        ),
+
+        dcc.Interval(
+            id="update-interval",
+            interval=100,   # 10 Hz
+            n_intervals=0
+        )
+    ]
+)
+
+# ===================== CALLBACK =====================
+@app.callback(
+    Output("rpm-gauge", "figure"),
+    Output("map-box", "children"),
+    Output("tps-box", "children"),
+    Output("tinj-box", "children"),
+    Input("update-interval", "n_intervals")
+)
+def update_dashboard(n):
+    rpm  = serial_data["RPM"]
+    map_ = serial_data["MAP"]
+    tps  = serial_data["TPS"]
+    tinj = serial_data["TINJ"]
+
+    return (
+        rpm_gauge(rpm),
+        f"MAP: {map_:.2f} bar",
+        f"TPS: {tps:.0f} %",
+        f"Tinj: {tinj:.2f} ms"
+    )
+
+# ===================== MAIN =====================
+if __name__ == "__main__":
+    app.run(debug=False)
