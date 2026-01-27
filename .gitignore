@@ -1,46 +1,38 @@
 #include <LiquidCrystal.h>
 
-// ======================================================
-// ======================= LCD ==========================
-// ======================================================
+// ================= LCD =================
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-// ======================================================
-// ================ RODA FÔNICA =========================
-// ======================================================
+// ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
-const byte pulsesPerRev = 60;    // 60-2
-const byte INJ_TOOTH = 21;
+const byte pulsesPerRev = 60;      // 60-2
+const byte INJ_TOOTH = 21;         // dente PMS
 
 volatile unsigned long lastPulseMicros = 0;
 volatile unsigned long periodMicros = 0;
-volatile unsigned long avgPeriod = 0;
+volatile unsigned long avgPeriod = 0;   // <<< filtro
 
 volatile byte toothCount = 0;
 volatile bool syncOK = false;
 
-// PMS como referência temporal
+// PMS agora é TEMPO, não bool
 volatile unsigned long lastPmsMicros = 0;
 
 unsigned int rpm = 0;
 
-// ======================================================
-// ======================= MAP ==========================
-// ======================================================
+// ================= MAP =================
 const byte mapPin = A4;
 const int adc_1V = 205;
 const int adc_5V = 1023;
 float mapBar = 0.0;
 
-// ======================================================
-// ======================= TPS ==========================
-// ======================================================
+// ================= TPS =================
 const byte tpsPin = A5;
+const int tpsMinADC = 100;
+const int tpsMaxADC = 900;
 float tpsPercent = 0.0;
 
-// ======================================================
-// ===================== INJETOR ========================
-// ======================================================
+// ================= INJETOR =================
 #define INJ_PIN 22
 
 volatile bool injectorOn = false;
@@ -48,11 +40,9 @@ volatile unsigned int injPulseTicksLatched = 0;
 
 float Tinj_calc = 0.0;
 float Tinj_latched = 0.0;
-float lastValidTinj = 1.5;   // fallback seguro
+float lastValidTinj = 1.5;   // <<< fallback ECU-like
 
-// ======================================================
-// ====================== EIXOS =========================
-// ======================================================
+// ================= EIXOS =================
 const int rpmAxis[16] = {
    500, 800, 1200, 1600, 2000, 2500, 3000, 3500,
   4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500
@@ -63,9 +53,7 @@ const float mapAxis[16] = {
   -0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0
 };
 
-// ======================================================
-// ==================== TABELA ==========================
-// ======================================================
+// ================= TABELA =================
 float injTable[16][16] = {
  {1.2,1.1,1.0,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.5,0.5,0.5,0.5,0.5},
  {1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.6,0.6},
@@ -85,9 +73,7 @@ float injTable[16][16] = {
  {7.0,6.9,6.8,6.7,6.6,6.5,6.4,6.3,6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.6}
 };
 
-// ======================================================
-// ================= INTERPOLAÇÃO =======================
-// ======================================================
+// ================= INTERPOLAÇÃO =================
 float interp2D(int rpmVal, float mapVal) {
   byte iR = 0, iM = 0;
   while (iR < 14 && rpmVal > rpmAxis[iR + 1]) iR++;
@@ -102,9 +88,7 @@ float interp2D(int rpmVal, float mapVal) {
   return a + fm * (b - a);
 }
 
-// ======================================================
-// =================== ISR RPM ==========================
-// ======================================================
+// ================= RPM ISR =================
 void rpmISR() {
   unsigned long now = micros();
   unsigned long p = now - lastPulseMicros;
@@ -113,7 +97,7 @@ void rpmISR() {
   if (avgPeriod == 0) avgPeriod = p;
   else avgPeriod = (avgPeriod * 7 + p) / 8;
 
-  if (p > avgPeriod * 1.8) {
+  if (p > avgPeriod * 1.8) {   // <<< gap robusto
     toothCount = 0;
     syncOK = true;
   } else if (syncOK) {
@@ -122,24 +106,20 @@ void rpmISR() {
   }
 
   if (syncOK && toothCount == INJ_TOOTH) {
-    lastPmsMicros = now;
+    lastPmsMicros = now;       // <<< PMS latched
   }
 
   periodMicros = p;
 }
 
-// ======================================================
-// ================= TIMER3 ISR =========================
-// ======================================================
+// ================= TIMER3 ISR =================
 ISR(TIMER3_COMPA_vect) {
   digitalWrite(INJ_PIN, LOW);
   injectorOn = false;
   TIMSK3 &= ~(1 << OCIE3A);
 }
 
-// ======================================================
-// ======================= SETUP ========================
-// ======================================================
+// ================= SETUP =================
 void setup() {
   lcd.begin(16, 2);
   Serial.begin(115200);
@@ -151,13 +131,18 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
 
   TCCR3A = 0;
-  TCCR3B = (1 << WGM32) | (1 << CS31);  // prescaler 8
+  TCCR3B = (1 << WGM32) | (1 << CS31);
 }
 
-// ======================================================
-// ======================== LOOP ========================
-// ======================================================
+// ================= LOOP =================
 void loop() {
+
+  // ---------- TPS ----------
+  int tpsADC = analogRead(tpsPin);
+  tpsPercent = constrain(
+    (float)(tpsADC - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC),
+    0, 100
+  );
 
   // ---------- RPM ----------
   unsigned long p;
@@ -165,7 +150,7 @@ void loop() {
   p = periodMicros;
   interrupts();
 
-  if (p > 0 && p < 300000) {
+  if (p > 0 && (micros() - lastPulseMicros) < 300000) {
     rpm = 60000000UL / (p * pulsesPerRev);
   } else {
     rpm = 0;
@@ -178,14 +163,10 @@ void loop() {
   else if (mapADC >= adc_5V) mapBar = -1.0;
   else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
 
-  // ---------- TPS ----------
-  int tpsADC = analogRead(tpsPin);
-  tpsPercent = constrain((tpsADC - 100) * 100.0 / 800.0, 0, 100);
-
   // ---------- CÁLCULO DE INJEÇÃO ----------
   if (rpm > 400 && syncOK) {
     Tinj_calc = interp2D(rpm, mapBar);
-    lastValidTinj = Tinj_calc;
+    lastValidTinj = Tinj_calc;    // <<< nunca zera
   }
 
   Tinj_latched = lastValidTinj;
@@ -211,18 +192,18 @@ void loop() {
     }
   }
 
+  // ---------- SERIAL DASH ----------
+  static unsigned long tSerial = 0;
+  if (millis() - tSerial > 100) {
+    Serial.print(rpm); Serial.print(",");
+    Serial.print(mapBar); Serial.print(",");
+    Serial.print(tpsPercent); Serial.print(",");
+    Serial.println(Tinj_latched);
+    tSerial = millis();
+  }
+
   // ---------- LCD ----------
   lcd.setCursor(0,0); lcd.print("RPM:"); lcd.print(rpm);
   lcd.setCursor(0,1); lcd.print("MAP:"); lcd.print(mapBar,2);
   lcd.setCursor(10,1); lcd.print("T:"); lcd.print(Tinj_latched,2);
-
-  // ---------- DEBUG ----------
-  Serial.print("RPM ");
-  Serial.print(rpm);
-  Serial.print(" | MAP ");
-  Serial.print(mapBar,2);
-  Serial.print(" | Tinj ");
-  Serial.println(Tinj_latched,3);
-
-  delay(5);
 }
