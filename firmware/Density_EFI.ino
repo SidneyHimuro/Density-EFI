@@ -6,15 +6,17 @@ LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 // ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
 const byte pulsesPerRev = 60;      // 60-2
-const byte INJ_TOOTH = 21;         // dente PMS de disparo
+const byte INJ_TOOTH = 21;         // dente PMS
 
 volatile unsigned long lastPulseMicros = 0;
 volatile unsigned long periodMicros = 0;
-volatile unsigned long lastPeriod = 0;
-volatile byte toothCount = 0;
+volatile unsigned long avgPeriod = 0;   // <<< filtro
 
+volatile byte toothCount = 0;
 volatile bool syncOK = false;
-volatile bool pmsEvent = false;
+
+// PMS agora é TEMPO, não bool
+volatile unsigned long lastPmsMicros = 0;
 
 unsigned int rpm = 0;
 
@@ -22,11 +24,10 @@ unsigned int rpm = 0;
 const byte mapPin = A4;
 const int adc_1V = 205;
 const int adc_5V = 1023;
-
 float mapBar = 0.0;
 
 // ================= TPS =================
-const byte tpsPin = A5;
+const byte tpsPin = A4;
 const int tpsMinADC = 100;   // ajuste conforme seu sensor
 const int tpsMaxADC = 900;   // ajuste conforme seu sensor
 float tpsPercent = 0.0;
@@ -40,6 +41,7 @@ volatile unsigned int injPulseTicksLatched = 0;
 
 float Tinj_calc = 0.0;
 float Tinj_latched = 0.0;
+float lastValidTinj = 1.5;   // <<< fallback ECU-like
 
 // ================= EIXOS =================
 const int rpmAxis[16] = {
@@ -75,7 +77,6 @@ float injTable[16][16] = {
 // ================= INTERPOLAÇÃO =================
 float interp2D(int rpmVal, float mapVal) {
   byte iR = 0, iM = 0;
-
   while (iR < 14 && rpmVal > rpmAxis[iR + 1]) iR++;
   while (iM < 14 && mapVal < mapAxis[iM + 1]) iM++;
 
@@ -94,20 +95,22 @@ void rpmISR() {
   unsigned long p = now - lastPulseMicros;
   lastPulseMicros = now;
 
-  if (p > (lastPeriod * 3) / 2) {
+  if (avgPeriod == 0) avgPeriod = p;
+  else avgPeriod = (avgPeriod * 7 + p) / 8;
+
+  if (p > avgPeriod * 1.8) {   // <<< gap robusto
     toothCount = 0;
     syncOK = true;
-  } else {
+  } else if (syncOK) {
     toothCount++;
     if (toothCount >= pulsesPerRev) toothCount = 0;
   }
 
-  lastPeriod = p;
-  periodMicros = p;
-
   if (syncOK && toothCount == INJ_TOOTH) {
-    pmsEvent = true;
+    lastPmsMicros = now;       // <<< PMS latched
   }
+
+  periodMicros = p;
 }
 
 // ================= TIMER3 ISR =================
@@ -129,70 +132,75 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
 
   TCCR3A = 0;
-  TCCR3B = (1 << WGM32) | (1 << CS31);  // prescaler 8
+  TCCR3B = (1 << WGM32) | (1 << CS31);
 }
 
 // ================= LOOP =================
 void loop() {
 
-  // TPS
+  // ---------- TPS ----------
   int tpsADC = analogRead(tpsPin);
-  if (tpsADC <= tpsMinADC) tpsPercent = 0.0;
-  else if (tpsADC >= tpsMaxADC) tpsPercent = 100.0;
-  else {
-    tpsPercent = (float)(tpsADC - tpsMinADC) * 100.0 /
-                 (tpsMaxADC - tpsMinADC);
-  }
-
+  tpsPercent = constrain(
+    (float)(tpsADC - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC),
+    0, 100
+  );
 
   // ---------- RPM ----------
-  static unsigned long rpmFilt = 0;
-  if (periodMicros > 0 && (micros() - lastPulseMicros) < 300000) {
-    unsigned long rpmNow = 60000000UL / (periodMicros * pulsesPerRev);
-    rpmFilt = (rpmFilt * 3 + rpmNow) / 4;
-    rpm = rpmFilt;
+  unsigned long p;
+  noInterrupts();
+  p = periodMicros;
+  interrupts();
+
+  if (p > 0 && (micros() - lastPulseMicros) < 300000) {
+    rpm = 60000000UL / (p * pulsesPerRev);
   } else {
     rpm = 0;
     syncOK = false;
   }
 
-  // ---------- PMS EVENT ----------
-  if (pmsEvent && syncOK && rpm > 0) {
-    pmsEvent = false;
+  // ---------- MAP ----------
+  int mapADC = analogRead(mapPin);
+  if (mapADC <= adc_1V) mapBar = 0.0;
+  else if (mapADC >= adc_5V) mapBar = -1.0;
+  else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
 
-    int mapADC = analogRead(mapPin);
-    if (mapADC <= adc_1V) mapBar = 0.0;
-    else if (mapADC >= adc_5V) mapBar = -1.0;
-    else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
-
+  // ---------- CÁLCULO DE INJEÇÃO ----------
+  if (rpm > 400 && syncOK) {
     Tinj_calc = interp2D(rpm, mapBar);
-    Tinj_latched = Tinj_calc;
-
-    injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
-
-    if (injPulseTicksLatched > 50) {
-      digitalWrite(INJ_PIN, HIGH);
-      injectorOn = true;
-
-      TCNT3 = 0;
-      OCR3A = injPulseTicksLatched;
-      TIFR3 |= (1 << OCF3A);
-      TIMSK3 |= (1 << OCIE3A);
-    }
-
-// ---------- ENVIO PARA O DASHBOARD (MANTENHA FORA DO PMS EVENT) ----------
-  static unsigned long tSerial = 0;
-  if (millis() - tSerial > 100) { // Envia a cada 100ms para o Dash
-    Serial.print(rpm);
-    Serial.print(",");
-    Serial.print(mapBar);
-    Serial.print(",");
-    Serial.print(tpsPercent);
-    Serial.print(",");
-    Serial.println(Tinj_latched); // println envia o caractere de nova linha (\n)
-    
-    tSerial = millis();
+    lastValidTinj = Tinj_calc;    // <<< nunca zera
   }
+
+  Tinj_latched = lastValidTinj;
+  injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
+
+  // ---------- DISPARO DA INJEÇÃO ----------
+  static unsigned long lastInjection = 0;
+  if (!injectorOn && rpm > 0) {
+    unsigned long injInterval = 60000000UL / rpm;
+
+    if (micros() - lastInjection >= injInterval) {
+      lastInjection = micros();
+
+      if (injPulseTicksLatched > 50) {
+        digitalWrite(INJ_PIN, HIGH);
+        injectorOn = true;
+
+        TCNT3 = 0;
+        OCR3A = injPulseTicksLatched;
+        TIFR3 |= (1 << OCF3A);
+        TIMSK3 |= (1 << OCIE3A);
+      }
+    }
+  }
+
+  // ---------- SERIAL DASH ----------
+  static unsigned long tSerial = 0;
+  if (millis() - tSerial > 100) {
+    Serial.print(rpm); Serial.print(",");
+    Serial.print(mapBar); Serial.print(",");
+    Serial.print(tpsPercent); Serial.print(",");
+    Serial.println(Tinj_latched);
+    tSerial = millis();
   }
 
   // ---------- LCD ----------
