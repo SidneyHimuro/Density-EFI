@@ -1,159 +1,228 @@
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output
-import plotly.graph_objects as go
-import serial
-import threading
-import time
+#include <LiquidCrystal.h>
 
-# ================= CONFIG SERIAL =================
-SERIAL_PORT = "COM7"
-SERIAL_BAUD = 115200
+// ======================================================
+// ======================= LCD ==========================
+// ======================================================
+LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-serial_data = {"RPM": 0, "MAP": 0.0, "TPS": 0.0, "TINJ": 0.0}
+// ======================================================
+// ================ RODA FÔNICA =========================
+// ======================================================
+const byte rpmPin = 21;
+const byte pulsesPerRev = 60;    // 60-2
+const byte INJ_TOOTH = 21;
 
-def serial_reader():
-    global serial_data
-    try:
-        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD, timeout=1)
-        while True:
-            line = ser.readline().decode(errors="ignore").strip()
-            if line:
-                parts = line.split(",")
-                if len(parts) == 4:
-                    try:
-                        serial_data["RPM"]  = float(parts[0])
-                        serial_data["MAP"]  = float(parts[1])
-                        serial_data["TPS"]  = float(parts[2])
-                        serial_data["TINJ"] = float(parts[3])
-                    except: pass
-    except Exception as e:
-        print(f"Erro Serial: {e}")
+volatile unsigned long lastPulseMicros = 0;
+volatile unsigned long periodMicros = 0;
+volatile unsigned long avgPeriod = 0;
 
-threading.Thread(target=serial_reader, daemon=True).start()
+volatile byte toothCount = 0;
+volatile bool syncOK = false;
 
-# ================= COMPONENTES VISUAIS =================
+// PMS como referência temporal
+volatile unsigned long lastPmsMicros = 0;
 
-def create_rpm_bar(value):
-    max_rpm = 8000
-    color = "#2ecc71" # Verde
-    if value > 4500: color = "#f1c40f" # Amarelo
-    if value > 5200: color = "#e74c3c" # Vermelho
+unsigned int rpm = 0;
 
-    fig = go.Figure(go.Bar(
-        x=[value],
-        y=["RPM"],
-        orientation='h',
-        marker=dict(color=color, line=dict(color="#222", width=1)),
-        width=0.8
-    ))
+// ======================================================
+// ======================= MAP ==========================
+// ======================================================
+const byte mapPin = A4;
+const int adc_1V = 205;
+const int adc_5V = 1023;
+float mapBar = 0.0;
 
-    fig.update_layout(
-        xaxis=dict(range=[0, max_rpm], showgrid=False, zeroline=False, 
-                   tickfont=dict(color="white", size=18, family="Arial Black")),
-        yaxis=dict(visible=False),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        margin=dict(l=10, r=10, t=5, b=5),
-        height=120,
-    )
-    return fig
+// ======================================================
+// ======================= TPS ==========================
+// ======================================================
+const byte tpsPin = A5;
+float tpsPercent = 0.0;
 
-def create_card_content(title, value, unit, color):
-    return [
-        html.Div(title.upper(), style={
-            "fontSize": "22px", 
-            "color": "#AAA", 
-            "fontWeight": "900",
-            "marginBottom": "10px"
-        }),
-        html.Div([
-            html.Span(f"{value}", style={
-                "fontSize": "64px", 
-                "fontWeight": "bold", 
-                "color": "white"
-            }),
-            html.Span(f" {unit}", style={
-                "fontSize": "24px", 
-                "color": color, 
-                "fontWeight": "bold",
-                "marginLeft": "10px"
-            })
-        ])
-    ]
+// ======================================================
+// ===================== INJETOR ========================
+// ======================================================
+#define INJ_PIN 22
 
-# ================= LAYOUT DASH =================
+volatile bool injectorOn = false;
+volatile unsigned int injPulseTicksLatched = 0;
 
-app = dash.Dash(__name__)
+float Tinj_calc = 0.0;
+float Tinj_latched = 0.0;
+float lastValidTinj = 1.5;   // fallback seguro
 
-app.layout = html.Div(style={
-    "backgroundColor": "#000", 
-    "color": "white", 
-    "minHeight": "100vh", 
-    "padding": "30px",
-    "fontFamily": "Arial, sans-serif"
-}, children=[
-    
-    # RPM SECTION
-    html.Div(style={
-        "border": "3px solid #444", 
-        "borderRadius": "12px", 
-        "padding": "20px", 
-        "marginBottom": "30px",
-        "backgroundColor": "#050505"
-    }, children=[
-        html.Div("RPM", style={
-            "textAlign": "center", 
-            "fontSize": "28px", 
-            "fontWeight": "bold", 
-            "color": "white",
-            "marginBottom": "10px"
-        }),
-        dcc.Graph(id="rpm-bar-graph", config={'displayModeBar': False}),
-    ]),
+// ======================================================
+// ====================== EIXOS =========================
+// ======================================================
+const int rpmAxis[16] = {
+   500, 800, 1200, 1600, 2000, 2500, 3000, 3500,
+  4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500
+};
 
-    # CARDS SECTION
-    html.Div(style={
-        "display": "flex", 
-        "justifyContent": "center", 
-        "gap": "20px",
-        "flexWrap": "nowrap" # Mantém na mesma linha se houver espaço
-    }, children=[
-        html.Div(id="map-card", style={
-            "flex": "1", "border": "3px solid #3498db", "borderRadius": "12px", 
-            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
-        }),
-        html.Div(id="tps-card", style={
-            "flex": "1", "border": "3px solid #f39c12", "borderRadius": "12px", 
-            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
-        }),
-        html.Div(id="tinj-card", style={
-            "flex": "1", "border": "3px solid #9b59b6", "borderRadius": "12px", 
-            "padding": "25px", "textAlign": "center", "backgroundColor": "#0a0a0a"
-        }),
-    ]),
+const float mapAxis[16] = {
+   0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,
+  -0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0
+};
 
-    dcc.Interval(id="ui-update-interval", interval=100)
-])
+// ======================================================
+// ==================== TABELA ==========================
+// ======================================================
+float injTable[16][16] = {
+ {1.2,1.1,1.0,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.5,0.5,0.5,0.5,0.5},
+ {1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.6,0.6},
+ {1.8,1.7,1.6,1.5,1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.8,0.8,0.8},
+ {2.2,2.1,2.0,1.9,1.8,1.7,1.6,1.5,1.4,1.3,1.2,1.1,1.1,1.1,1.1,1.1},
+ {2.6,2.5,2.4,2.3,2.2,2.1,2.0,1.9,1.8,1.7,1.6,1.5,1.4,1.4,1.4,1.4},
+ {3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.2,2.1,2.0,1.9,1.8,1.7,1.7,1.7},
+ {3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.2,2.1,2.0,2.0},
+ {3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.4},
+ {4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.8},
+ {4.6,4.5,4.4,4.3,4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.2},
+ {5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.3,4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.6},
+ {5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.3,4.2,4.1,4.0,4.0},
+ {5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.4},
+ {6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.8},
+ {6.6,6.5,6.4,6.3,6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.2},
+ {7.0,6.9,6.8,6.7,6.6,6.5,6.4,6.3,6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.6}
+};
 
-# ================= CALLBACKS =================
+// ======================================================
+// ================= INTERPOLAÇÃO =======================
+// ======================================================
+float interp2D(int rpmVal, float mapVal) {
+  byte iR = 0, iM = 0;
+  while (iR < 14 && rpmVal > rpmAxis[iR + 1]) iR++;
+  while (iM < 14 && mapVal < mapAxis[iM + 1]) iM++;
 
-@app.callback(
-    Output("rpm-bar-graph", "figure"),
-    Output("map-card", "children"),
-    Output("tps-card", "children"),
-    Output("tinj-card", "children"),
-    Input("ui-update-interval", "n_intervals")
-)
-def refresh_ui(n):
-    rpm_fig = create_rpm_bar(serial_data["RPM"])
-    
-    # Formatação do MAP em bar com x.xx
-    map_content = create_card_content("MAP", f"{serial_data['MAP']:.2f}", "bar", "#3498db")
-    tps_content = create_card_content("TPS", f"{int(serial_data['TPS'])}", "%", "#f39c12")
-    tinj_content = create_card_content("Tinj", f"{serial_data['TINJ']:.2f}", "ms", "#9b59b6")
-    
-    return rpm_fig, map_content, tps_content, tinj_content
+  float fr = (float)(rpmVal - rpmAxis[iR]) / (rpmAxis[iR + 1] - rpmAxis[iR]);
+  float fm = (float)(mapVal - mapAxis[iM]) / (mapAxis[iM + 1] - mapAxis[iM]);
 
-if __name__ == "__main__":
-    app.run(debug=False)
+  float a = injTable[iR][iM]     + fr * (injTable[iR + 1][iM]     - injTable[iR][iM]);
+  float b = injTable[iR][iM + 1] + fr * (injTable[iR + 1][iM + 1] - injTable[iR][iM + 1]);
+
+  return a + fm * (b - a);
+}
+
+// ======================================================
+// =================== ISR RPM ==========================
+// ======================================================
+void rpmISR() {
+  unsigned long now = micros();
+  unsigned long p = now - lastPulseMicros;
+  lastPulseMicros = now;
+
+  if (avgPeriod == 0) avgPeriod = p;
+  else avgPeriod = (avgPeriod * 7 + p) / 8;
+
+  if (p > avgPeriod * 1.8) {
+    toothCount = 0;
+    syncOK = true;
+  } else if (syncOK) {
+    toothCount++;
+    if (toothCount >= pulsesPerRev) toothCount = 0;
+  }
+
+  if (syncOK && toothCount == INJ_TOOTH) {
+    lastPmsMicros = now;
+  }
+
+  periodMicros = p;
+}
+
+// ======================================================
+// ================= TIMER3 ISR =========================
+// ======================================================
+ISR(TIMER3_COMPA_vect) {
+  digitalWrite(INJ_PIN, LOW);
+  injectorOn = false;
+  TIMSK3 &= ~(1 << OCIE3A);
+}
+
+// ======================================================
+// ======================= SETUP ========================
+// ======================================================
+void setup() {
+  lcd.begin(16, 2);
+  Serial.begin(115200);
+
+  pinMode(rpmPin, INPUT_PULLUP);
+  pinMode(INJ_PIN, OUTPUT);
+  digitalWrite(INJ_PIN, LOW);
+
+  attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
+
+  TCCR3A = 0;
+  TCCR3B = (1 << WGM32) | (1 << CS31);  // prescaler 8
+}
+
+// ======================================================
+// ======================== LOOP ========================
+// ======================================================
+void loop() {
+
+  // ---------- RPM ----------
+  unsigned long p;
+  noInterrupts();
+  p = periodMicros;
+  interrupts();
+
+  if (p > 0 && p < 300000) {
+    rpm = 60000000UL / (p * pulsesPerRev);
+  } else {
+    rpm = 0;
+    syncOK = false;
+  }
+
+  // ---------- MAP ----------
+  int mapADC = analogRead(mapPin);
+  if (mapADC <= adc_1V) mapBar = 0.0;
+  else if (mapADC >= adc_5V) mapBar = -1.0;
+  else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
+
+  // ---------- TPS ----------
+  int tpsADC = analogRead(tpsPin);
+  tpsPercent = constrain((tpsADC - 100) * 100.0 / 800.0, 0, 100);
+
+  // ---------- CÁLCULO DE INJEÇÃO ----------
+  if (rpm > 400 && syncOK) {
+    Tinj_calc = interp2D(rpm, mapBar);
+    lastValidTinj = Tinj_calc;
+  }
+
+  Tinj_latched = lastValidTinj;
+  injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
+
+  // ---------- DISPARO DA INJEÇÃO ----------
+  static unsigned long lastInjection = 0;
+  if (!injectorOn && rpm > 0) {
+    unsigned long injInterval = 60000000UL / rpm;
+
+    if (micros() - lastInjection >= injInterval) {
+      lastInjection = micros();
+
+      if (injPulseTicksLatched > 50) {
+        digitalWrite(INJ_PIN, HIGH);
+        injectorOn = true;
+
+        TCNT3 = 0;
+        OCR3A = injPulseTicksLatched;
+        TIFR3 |= (1 << OCF3A);
+        TIMSK3 |= (1 << OCIE3A);
+      }
+    }
+  }
+
+  // ---------- LCD ----------
+  lcd.setCursor(0,0); lcd.print("RPM:"); lcd.print(rpm);
+  lcd.setCursor(0,1); lcd.print("MAP:"); lcd.print(mapBar,2);
+  lcd.setCursor(10,1); lcd.print("T:"); lcd.print(Tinj_latched,2);
+
+  // ---------- DEBUG ----------
+  Serial.print("RPM ");
+  Serial.print(rpm);
+  Serial.print(" | MAP ");
+  Serial.print(mapBar,2);
+  Serial.print(" | Tinj ");
+  Serial.println(Tinj_latched,3);
+
+  delay(5);
+}
