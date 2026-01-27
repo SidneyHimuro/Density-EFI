@@ -1,4 +1,4 @@
-# 🏎️ Density EFI - Engine Management System
+# 🏎️ Density EFI - Engine Management System (v1.0)
 
 [Read in English](#english) | [Ler em Português](#português)
 
@@ -6,80 +6,55 @@
 
 ## 🇧🇷 Português
 
-O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto, desenvolvido para rodar no microcontrolador **ATmega2560** (Plataforma **Arduino Mega 2560**). Este projeto foca em **precisão absoluta no tempo de injeção** e leitura estável de sensores analógicos.
+O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto para a plataforma **Arduino Mega 2560**. Esta versão foca em interface física direta, permitindo ajustes em tempo real sem a necessidade de um PC.
 
-### 🚀 Funcionalidades
-- ⛽ **Injeção de Combustível:** Tempo de abertura (Pulse Width) controlado por hardware (Timer 3) com precisão de microsegundos.
-- ⚡ **Sincronismo:** Leitura de roda fônica **60-2** via interrupção externa (Pino 21).
-- 📊 **Interpolação 2D:** Tabela 16x16 que cruza RPM e MAP para entrega precisa de combustível.
-- 🖥️ **Interface LCD:** Monitoramento em tempo real no display 16x2.
-
-### 🖥️ Dashboard em Tempo Real (Interface Python)
-O projeto inclui um painel de instrumentos moderno desenvolvido em **Python (Dash/Plotly)** para monitoramento avançado via USB:
-- 📈 **Visualização:** Barra de RPM estilo "Race" com escala de 1 a 8.
-- 🚥 **Shift Light:** Alerta visual programável que faz a barra de RPM piscar no limite definido.
-- 🔌 **Conectividade:** Seletor de porta COM dinâmico, botão Conectar/Desconectar e indicador LED de status de dados em tempo real.
+### 🚀 Funcionalidades Atuais
+- ⛽ **Injeção de Combustível:** Controle via hardware (**Timer 3**) com precisão de microssegundos.
+- ⚡ **Sincronismo:** Decodificação de roda fônica **60-2** via interrupção externa (Pino 21).
+- 📊 **Mapa 16x16 Editável:** Tabela de injeção completa com interpolação 2D (RPM x MAP).
+- 💾 **Persistência EEPROM:** Salva e recupera mapas de injeção automaticamente ao ligar.
+- 🖥️ **Menu Carrossel (LCD 16x2):** - **Navegação:** UP/DOWN para trocar de menu, SELECT para entrar, LEFT para voltar.
+  - **Aceleração de Botão:** Ao manter pressionado UP/DOWN no mapa, a velocidade de incremento aumenta.
+  - **Monitoramento:** Tela dedicada para RPM, TPS, MAP e Tempo de Injeção (Tinj).
+  - **Editor de Mapa:** Ajuste fino de célula a célula com precisão de 0.01ms.
 
 ### 📌 Pinagem de Referência (Arduino Mega 2560)
-| Função | Pino Arduino | Status |
+| Função | Pino Arduino | Observação |
 | :--- | :--- | :--- |
-| 🔄 **Sinal de Rotação** | D21 (INT0) | Ativo |
-| 🏭 **Sensor MAP** | A4 | Ativo |
-| 🏎️ **Sensor TPS** | A5 | Ativo |
-| 💨 **Saída Injetor** | D22 | Ativo (Timer 3) |
-
----
-
-### 🛠️ Instalação e Uso
-1. **Módulo de Injeção (Hardware)**
-   - Carregue o firmware usando a Arduino IDE 1.8.x ou superior.
-2. **Dashboard (Software)**
-   - Instale as dependências: `pip install dash pyserial plotly`.
-   - Execute o arquivo: `python main.py`.
-   - Acesse no navegador: `http://127.0.0.1:8050`.
-
----
-
-### ⚠️ Disclaimer
-O ajuste de parâmetros do motor pode resultar em **danos mecânicos graves**. Este projeto tem fins educacionais. Use por sua conta e risco.
+| 🔄 **Sinal de Rotação** | D21 (INT0) | Roda Fônica 60-2 |
+| 🏭 **Sensor MAP** | A4 | Analog In (0 a -1.0 bar) |
+| 🏎️ **Sensor TPS** | A3 | Analog In (0% a 100%) |
+| 💨 **Saída Injetor** | D22 | Digital Out (Timer 3) |
+| 🔘 **Botões Shield** | A0 | Keypad Shield (Resistor Ladder) |
 
 ---
 
 ## 🇺🇸 English
 
-**Density EFI** is an open-source fuel injection management system (ECU) developed for the **ATmega2560** (Using **Arduino Mega 2560** hardware). This project focuses on **absolute precision in injection timing** and stable analog sensor readings.
+**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. This version focuses on a direct hardware interface, allowing real-time tuning without a PC.
 
-### 🚀 Features
-- ⛽ **Fuel Injection:** Pulse Width controlled by hardware (Timer 3) with microsecond precision.
-- ⚡ **Synchronization:** **60-2** trigger wheel pattern decoding via external interrupt (Pin 21).
-- 📊 **2D Interpolation:** 16x16 Fuel Map (RPM vs MAP) for accurate delivery.
-- 🖥️ **LCD Interface:** 16x2 display for real-time monitoring.
+### 🚀 Current Features
+- ⛽ **Fuel Injection:** Hardware-controlled pulse width (**Timer 3**) with microsecond precision.
+- ⚡ **Synchronization:** **60-2** trigger wheel decoding via external interrupt (Pin 21).
+- 📊 **Editable 16x16 Map:** Full fuel table with 2D interpolation (RPM vs MAP).
+- 💾 **EEPROM Persistence:** Automatically saves and restores maps on startup.
+- 🖥️ **Carousel Menu (16x2 LCD):** - **Navigation:** UP/DOWN to switch menus, SELECT to enter, LEFT to exit.
+  - **Button Acceleration:** Holding UP/DOWN in map mode increases increment speed.
+  - **Monitoring:** Dedicated screen for RPM, TPS, MAP, and Injection Time (Tinj).
+  - **Map Editor:** Fine-tuning cell-by-cell with 0.01ms precision.
 
-### 🖥️ Real-Time Dashboard (Python Interface)
-The project includes a modern instrument cluster developed in **Python (Dash/Plotly)** for advanced USB monitoring:
-- 📈 **Visualization:** "Race" style RPM bar with a 1 to 8 scale.
-- 🚥 **Shift Light:** Programmable visual alert that flashes the RPM bar at a defined limit.
-- 🔌 **Connectivity:** Dynamic COM port selector, Connect/Disconnect button, and real-time data status LED indicator.
+
 
 ### 📌 Pinout Reference (Arduino Mega 2560)
-| Function | Arduino Pin | Status |
+| Function | Arduino Pin | Note |
 | :--- | :--- | :--- |
-| 🔄 **RPM Signal** | D21 (INT0) | Active |
-| 🏭 **MAP Sensor** | A4 | Active |
-| 🏎️ **TPS Sensor** | A5 | Active |
-| 💨 **Injector Output** | D22 | Active (Timer 3) |
-
----
-
-### 🛠️ Installation and Usage
-1. **Injection Module (Hardware)**
-   - Upload the firmware using Arduino IDE 1.8.x or higher.
-2. **Dashboard (Software)**
-   - Install dependencies: `pip install dash pyserial plotly`.
-   - Run the script: `python main.py`.
-   - Open in your browser: `http://127.0.0.1:8050`.
+| 🔄 **RPM Signal** | D21 (INT0) | 60-2 Trigger Wheel |
+| 🏭 **MAP Sensor** | A4 | Analog In (0 to -1.0 bar) |
+| 🏎️ **TPS Sensor** | A3 | Analog In (0% to 100%) |
+| 💨 **Injector Output** | D22 | Digital Out (Timer 3) |
+| 🔘 **Shield Buttons** | A0 | Keypad Shield (Resistor Ladder) |
 
 ---
 
 ### ⚠️ Disclaimer
-Adjusting engine parameters can result in **serious mechanical damage**. This project is for educational purposes. Use at your own risk.
+O ajuste de parâmetros do motor pode resultar em **danos mecânicos graves**. Este projeto tem fins educacionais. Use por sua conta e risco. / Adjusting engine parameters can result in **serious mechanical damage**. This project is for educational purposes. Use at your own risk.
