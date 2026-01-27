@@ -180,15 +180,19 @@ void loop() {
       TIMSK3 |= (1 << OCIE3A);
     }
 
-    Serial.print("RPM ");
+// ---------- ENVIO PARA O DASHBOARD (MANTENHA FORA DO PMS EVENT) ----------
+  static unsigned long tSerial = 0;
+  if (millis() - tSerial > 100) { // Envia a cada 100ms para o Dash
     Serial.print(rpm);
-    Serial.print(" | MAP ");
-    Serial.print(mapBar, 2);
-    Serial.print(" | TPS ");
-    Serial.println((int)tpsPercent);
-    Serial.print(" | Tinj ");
-    Serial.println(Tinj_latched, 3);
+    Serial.print(",");
+    Serial.print(mapBar);
+    Serial.print(",");
+    Serial.print(tpsPercent);
+    Serial.print(",");
+    Serial.println(Tinj_latched); // println envia o caractere de nova linha (\n)
     
+    tSerial = millis();
+  }
   }
 
   // ---------- LCD ----------
