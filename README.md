@@ -9,10 +9,16 @@
 O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto, desenvolvido para rodar no microcontrolador **ATmega2560** (Plataforma **Arduino Mega 2560**). Este projeto foca em **precisão absoluta no tempo de injeção** e leitura estável de sensores analógicos.
 
 ### 🚀 Funcionalidades
-- ⛽ **Injeção de Combustível:** Tempo de abertura (Pulse Width) controlado por hardware (Timer 3) com precisão de microsegundos.  
-- ⚡ **Sincronismo:** Leitura de roda fônica **60-2** via interrupção externa (Pino 21).  
-- 📊 **Interpolação 2D:** Tabela 16x16 que cruza RPM e MAP para entrega precisa de combustível.  
-- 🖥️ **Interface LCD:** Monitoramento em tempo real no display 16x2.  
+- ⛽ **Injeção de Combustível:** Tempo de abertura (Pulse Width) controlado por hardware (Timer 3) com precisão de microsegundos.
+- ⚡ **Sincronismo:** Leitura de roda fônica **60-2** via interrupção externa (Pino 21).
+- 📊 **Interpolação 2D:** Tabela 16x16 que cruza RPM e MAP para entrega precisa de combustível.
+- 🖥️ **Interface LCD:** Monitoramento em tempo real no display 16x2.
+
+### 🖥️ Dashboard em Tempo Real (Interface Python)
+O projeto inclui um painel de instrumentos moderno desenvolvido em **Python (Dash/Plotly)** para monitoramento avançado via USB:
+- 📈 **Visualização:** Barra de RPM estilo "Race" com escala de 1 a 8.
+- 🚥 **Shift Light:** Alerta visual programável que faz a barra de RPM piscar no limite definido.
+- 🔌 **Conectividade:** Seletor de porta COM dinâmico, botão Conectar/Desconectar e indicador LED de status de dados em tempo real.
 
 ### 📌 Pinagem de Referência (Arduino Mega 2560)
 | Função | Pino Arduino | Status |
@@ -24,16 +30,13 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 
 ---
 
-### 🛠️ Instalação
-1. **Requisitos**
-   - **Hardware:** Arduino Mega 2560  
-   - **IDE:** Arduino IDE 1.8.x ou superior  
-   - **Bibliotecas:** `LiquidCrystal` (nativa)  
-
-2. **Próximos Passos**
-   - Implementar **Aceleração Rápida (TPS Delta)**  
-   - Implementar **Correção de Partida a Frio**  
-   - Implementar **Saída de Ignição**  
+### 🛠️ Instalação e Uso
+1. **Módulo de Injeção (Hardware)**
+   - Carregue o firmware usando a Arduino IDE 1.8.x ou superior.
+2. **Dashboard (Software)**
+   - Instale as dependências: `pip install dash pyserial plotly`.
+   - Execute o arquivo: `python main.py`.
+   - Acesse no navegador: `http://127.0.0.1:8050`.
 
 ---
 
@@ -47,10 +50,16 @@ O ajuste de parâmetros do motor pode resultar em **danos mecânicos graves**. E
 **Density EFI** is an open-source fuel injection management system (ECU) developed for the **ATmega2560** (Using **Arduino Mega 2560** hardware). This project focuses on **absolute precision in injection timing** and stable analog sensor readings.
 
 ### 🚀 Features
-- ⛽ **Fuel Injection:** Pulse Width controlled by hardware (Timer 3) with microsecond precision.  
-- ⚡ **Synchronization:** **60-2** trigger wheel pattern decoding via external interrupt (Pin 21).  
-- 📊 **2D Interpolation:** 16x16 Fuel Map (RPM vs MAP) for accurate delivery.  
-- 🖥️ **LCD Interface:** 16x2 display for real-time monitoring.  
+- ⛽ **Fuel Injection:** Pulse Width controlled by hardware (Timer 3) with microsecond precision.
+- ⚡ **Synchronization:** **60-2** trigger wheel pattern decoding via external interrupt (Pin 21).
+- 📊 **2D Interpolation:** 16x16 Fuel Map (RPM vs MAP) for accurate delivery.
+- 🖥️ **LCD Interface:** 16x2 display for real-time monitoring.
+
+### 🖥️ Real-Time Dashboard (Python Interface)
+The project includes a modern instrument cluster developed in **Python (Dash/Plotly)** for advanced USB monitoring:
+- 📈 **Visualization:** "Race" style RPM bar with a 1 to 8 scale.
+- 🚥 **Shift Light:** Programmable visual alert that flashes the RPM bar at a defined limit.
+- 🔌 **Connectivity:** Dynamic COM port selector, Connect/Disconnect button, and real-time data status LED indicator.
 
 ### 📌 Pinout Reference (Arduino Mega 2560)
 | Function | Arduino Pin | Status |
@@ -62,16 +71,13 @@ O ajuste de parâmetros do motor pode resultar em **danos mecânicos graves**. E
 
 ---
 
-### 🛠️ Installation
-1. **Requirements**
-   - **Hardware:** Arduino Mega 2560  
-   - **IDE:** Arduino IDE 1.8.x or higher  
-   - **Libraries:** `LiquidCrystal` (built-in)  
-
-2. **Next Steps**
-   - Implement **TPS Delta / Acceleration Enrichment**  
-   - Implement **Cold Start Correction**  
-   - Implement **Ignition Output**  
+### 🛠️ Installation and Usage
+1. **Injection Module (Hardware)**
+   - Upload the firmware using Arduino IDE 1.8.x or higher.
+2. **Dashboard (Software)**
+   - Install dependencies: `pip install dash pyserial plotly`.
+   - Run the script: `python main.py`.
+   - Open in your browser: `http://127.0.0.1:8050`.
 
 ---
 
