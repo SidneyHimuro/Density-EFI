@@ -17,7 +17,7 @@ byte campoFoco = 0;
 bool modoConfirmacao = false;
 int selecaoConfirmar = 0; 
 unsigned long tempoBotaoRetido = 0;
-int intervaloAceleracao = 200;
+int intervaloAceleracao = 250; 
 
 // ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
@@ -45,14 +45,14 @@ float Tinj_latched = 0.0, lastValidTinj = 1.5;
 // ================= EIXOS E TABELA =================
 const int rpmAxis[16] = {500, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500};
 const float mapAxis[16] = {0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,-0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0};
-float injTable[16][16]; // Carregada da EEPROM ou definida no setup
+float injTable[16][16]; 
 
 // ================= FUNÇÕES AUXILIARES =================
 int lerBotao() {
   int val = analogRead(0);
   if (val < 50)   return 1; // RIGHT
   if (val < 150)  return 2; // UP
-  if (val < 350)  return 3; // DOWN (Ajustado conforme seu teste)
+  if (val < 350)  return 3; // DOWN
   if (val < 500)  return 4; // LEFT
   if (val < 750)  return 5; // SELECT
   return 0;
@@ -80,7 +80,6 @@ void carregarTabela() {
       }
     }
   } else {
-    // Tabela padrão se a EEPROM estiver limpa
     for(int i=0; i<16; i++) for(int j=0; j<16; j++) injTable[i][j] = 1.5;
   }
 }
@@ -156,7 +155,7 @@ void loop() {
     }
   }
 
-  // --- Serial para Dashboard ---
+    // --- Serial para Dashboard ---
   static unsigned long tSer = 0;
   if (millis() - tSer > 100) {
     Serial.print(rpm); Serial.print(","); Serial.print(mapBar); Serial.print(",");
@@ -164,57 +163,98 @@ void loop() {
     tSer = millis();
   }
 
-  // --- Interface LCD com Aceleração e Limpeza de Buffer ---
+  // --- Interface LCD ---
   static unsigned long tLCD = 0;
-  if (millis() - tLCD > (estadoAtual == MAPA_INJ ? intervaloAceleracao : 150)) {
+  static unsigned long tBotao = 0; 
+
+  if (millis() - tLCD > 80) { // Frequência de atualização levemente reduzida para estabilidade visual
     int btn = lerBotao();
+    bool blinkState = (millis() / 400) % 2;
 
     if (estadoAtual == MENU_PRINCIPAL) {
-      if (btn == 2) menuCursor = (menuCursor - 1 + totalMenus) % totalMenus;
-      if (btn == 3) menuCursor = (menuCursor + 1) % totalMenus;
-      if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); lcd.clear(); }
+      if (btn == 2) { menuCursor = (menuCursor - 1 + totalMenus) % totalMenus; lcd.clear(); delay(150); }
+      if (btn == 3) { menuCursor = (menuCursor + 1) % totalMenus; lcd.clear(); delay(150); }
+      if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); lcd.clear(); delay(200); }
+      
       lcd.setCursor(0, 0); lcd.print("> MENU PRINCIPAL ");
-      lcd.setCursor(0, 1); lcd.print("["); lcd.print(nomesMenus[menuCursor]); lcd.print("]             "); // Espaços limpam rastro
+      lcd.setCursor(0, 1); 
+      lcd.print("["); lcd.print(nomesMenus[menuCursor]); lcd.print("]");
+      // Limpa o resto da linha 2
+      for (int i = nomesMenus[menuCursor].length() + 2; i < 16; i++) lcd.print(" ");
     } 
     else if (estadoAtual == MONITORAMENTO) {
       if (btn == 4) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); }
-      lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("    TPS:"); lcd.print((int)tpsPercent); lcd.print("% ");
-      lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2); lcd.print("  T:"); lcd.print(Tinj_latched, 2); lcd.print("ms ");
+      
+      lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); 
+      lcd.print("    "); // Limpa sobra do RPM
+      
+      lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); 
+      lcd.print("%     "); // Limpa sobra do TPS
+      
+      lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2);
+      lcd.print("   "); // Limpa sobra do MAP
+      
+      lcd.setCursor(8, 1); lcd.print(Tinj_latched, 2); 
+      lcd.print("ms "); // Limpa sobra do Tempo
     } 
     else if (estadoAtual == MAPA_INJ) {
       if (!modoConfirmacao) {
-        // Lógica de Aceleração
+        // Logica de Botões e Aceleração
         if (btn == 2 || btn == 3) {
-          if (tempoBotaoRetido == 0) tempoBotaoRetido = millis();
-          if (millis() - tempoBotaoRetido > 500) intervaloAceleracao = 30; // Modo Rápido
-        } else {
-          tempoBotaoRetido = 0; intervaloAceleracao = 200; // Reseta Velocidade
-        }
+          if (tempoBotaoRetido == 0) {
+            tempoBotaoRetido = millis();
+            intervaloAceleracao = 300;
+            tBotao = 0;
+          }
+          if (millis() - tBotao > intervaloAceleracao) {
+            tBotao = millis();
+            if (millis() - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
+            else if (millis() - tempoBotaoRetido > 400) intervaloAceleracao = 150;
 
-        if (btn == 1) { campoFoco = (campoFoco + 1) % 3; delay(150); }
-        if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; delay(150); }
-        
-        if (campoFoco == 0) { // Navegar RPM
-           if(btn == 2) editR = (editR + 1) % 16;
-           if(btn == 3) editR = (editR + 15) % 16;
-        } else if (campoFoco == 1) { // Navegar MAP
-           if(btn == 2) editM = (editM + 1) % 16;
-           if(btn == 3) editM = (editM + 15) % 16;
-        } else if (campoFoco == 2) { // Editar Tinj
-           if(btn == 2) injTable[editR][editM] += 0.01;
-           if(btn == 3) injTable[editR][editM] -= 0.01;
-           injTable[editR][editM] = constrain(injTable[editR][editM], 0.1, 20.0);
-        }
+            if (campoFoco == 0) { 
+               if(btn == 2) editR = (editR + 1) % 16;
+               if(btn == 3) editR = (editR + 15) % 16;
+            } else if (campoFoco == 1) { 
+               if(btn == 2) editM = (editM + 1) % 16;
+               if(btn == 3) editM = (editM + 15) % 16;
+            } else if (campoFoco == 2) { 
+               if(btn == 2) injTable[editR][editM] += 0.01;
+               if(btn == 3) injTable[editR][editM] -= 0.01;
+               injTable[editR][editM] = constrain(injTable[editR][editM], 0.1, 20.0);
+            }
+          }
+        } else { tempoBotaoRetido = 0; }
+
+        if (btn == 1) { campoFoco = (campoFoco + 1) % 3; delay(200); }
+        if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; delay(200); }
         if (btn == 5) { modoConfirmacao = true; lcd.clear(); }
 
-        lcd.setCursor(0,0); lcd.print(campoFoco==0?"*":" "); lcd.print("R:"); lcd.print(rpmAxis[editR]); lcd.print("   ");
-        lcd.setCursor(8,0); lcd.print(campoFoco==1?"*":" "); lcd.print("M:"); lcd.print(mapAxis[editM],2); lcd.print("  ");
-        lcd.setCursor(0,1); lcd.print("EDIT "); lcd.print(campoFoco==2?"*":" "); 
-        lcd.print("T:"); lcd.print(injTable[editR][editM],2); lcd.print("ms    ");
+        // --- IMPRESSÃO NO LCD COM LIMPEZA DE SOMBRA ---
+        lcd.setCursor(0,0);
+        if (campoFoco == 0 && blinkState) lcd.print("R:    "); 
+        else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
+        lcd.print("     "); // Limpa rastro lateral
+
+        lcd.setCursor(8,0);
+        if (campoFoco == 1 && blinkState) lcd.print("M:    "); 
+        else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
+        lcd.print("    ");
+
+        lcd.setCursor(0,1);
+        if (campoFoco == 2 && blinkState) lcd.print("T.Inj:       "); 
+        else { 
+            lcd.print("T.Inj: "); 
+            lcd.print(injTable[editR][editM],2); 
+            lcd.print("ms"); 
+        }
+        lcd.print("    ");
+
       } else {
         if (btn == 2 || btn == 3) { selecaoConfirmar = !selecaoConfirmar; delay(200); }
         lcd.setCursor(0,0); lcd.print("Deseja Salvar?  ");
-        lcd.setCursor(0,1); lcd.print(selecaoConfirmar==0?">SIM  ":" SIM  "); lcd.print(selecaoConfirmar==1?">NAO ":" NAO ");
+        lcd.setCursor(0,1); 
+        lcd.print(selecaoConfirmar==0?">SIM  ":" SIM  "); 
+        lcd.print(selecaoConfirmar==1?">NAO ":" NAO ");
         if (btn == 5) { 
           if(selecaoConfirmar==0) salvarTabela(); 
           modoConfirmacao=false; estadoAtual=MENU_PRINCIPAL; lcd.clear(); 
@@ -222,7 +262,7 @@ void loop() {
       }
     } else {
       if (btn == 4) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); }
-      lcd.setCursor(0,0); lcd.print(nomesMenus[menuCursor]); lcd.print("          ");
+      lcd.setCursor(0,0); lcd.print(nomesMenus[menuCursor]); lcd.print("           ");
       lcd.setCursor(0,1); lcd.print("EM DESENVOLVIM. ");
     }
     tLCD = millis();
