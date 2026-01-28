@@ -18,6 +18,7 @@ bool modoConfirmacao = false;
 int selecaoConfirmar = 0; 
 unsigned long tempoBotaoRetido = 0;
 int intervaloAceleracao = 250; 
+unsigned long lastBtnPress = 0; // Para substituir os delays bloqueantes
 
 // ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
@@ -120,7 +121,12 @@ void setup() {
   carregarTabela();
   lcd.setCursor(0, 0); lcd.print("HimuroPerformance");
   lcd.setCursor(0, 1); lcd.print("Density EFI v1.0");
-  delay(2000); lcd.clear();
+  
+  // Substituído delay(2000) por um loop que não trava o sistema se necessário, 
+  // mas como é no setup (motor desligado), o delay aqui é aceitável.
+  delay(2000); 
+  lcd.clear();
+  
   pinMode(rpmPin, INPUT_PULLUP); pinMode(INJ_PIN, OUTPUT);
   attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
   TCCR3A = 0; TCCR3B = (1 << WGM32) | (1 << CS31);
@@ -128,7 +134,7 @@ void setup() {
 
 // ================= LOOP PRINCIPAL =================
 void loop() {
-  // --- Sensores e Injeção ---
+  // --- Lógica de Sensores e Injeção (Sempre Rodando) ---
   tpsPercent = constrain((float)(analogRead(tpsPin) - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC), 0, 100);
   int mapADC = analogRead(mapPin);
   mapBar = (mapADC <= adc_1V) ? 0.0 : (mapADC >= adc_5V) ? -1.0 : -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
@@ -155,7 +161,7 @@ void loop() {
     }
   }
 
-    // --- Serial para Dashboard ---
+  // --- Serial para Dashboard ---
   static unsigned long tSer = 0;
   if (millis() - tSer > 100) {
     Serial.print(rpm); Serial.print(","); Serial.print(mapBar); Serial.print(",");
@@ -163,53 +169,48 @@ void loop() {
     tSer = millis();
   }
 
-  // --- Interface LCD ---
+  // --- Interface LCD (Sem Delays Bloqueantes) ---
   static unsigned long tLCD = 0;
-  static unsigned long tBotao = 0; 
+  static unsigned long tBotaoAcel = 0; 
 
-  if (millis() - tLCD > 80) { // Frequência de atualização levemente reduzida para estabilidade visual
+  if (millis() - tLCD > 80) { 
     int btn = lerBotao();
     bool blinkState = (millis() / 400) % 2;
+    unsigned long m = millis();
 
     if (estadoAtual == MENU_PRINCIPAL) {
-      if (btn == 2) { menuCursor = (menuCursor - 1 + totalMenus) % totalMenus; lcd.clear(); delay(150); }
-      if (btn == 3) { menuCursor = (menuCursor + 1) % totalMenus; lcd.clear(); delay(150); }
-      if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); lcd.clear(); delay(200); }
+      if (m - lastBtnPress > 200) { // Debounce não bloqueante
+        if (btn == 2) { menuCursor = (menuCursor - 1 + totalMenus) % totalMenus; lcd.clear(); lastBtnPress = m; }
+        if (btn == 3) { menuCursor = (menuCursor + 1) % totalMenus; lcd.clear(); lastBtnPress = m; }
+        if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); lcd.clear(); lastBtnPress = m; }
+      }
       
       lcd.setCursor(0, 0); lcd.print("> MENU PRINCIPAL ");
       lcd.setCursor(0, 1); 
       lcd.print("["); lcd.print(nomesMenus[menuCursor]); lcd.print("]");
-      // Limpa o resto da linha 2
       for (int i = nomesMenus[menuCursor].length() + 2; i < 16; i++) lcd.print(" ");
     } 
     else if (estadoAtual == MONITORAMENTO) {
-      if (btn == 4) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); }
+      if (btn == 4 && (m - lastBtnPress > 200)) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); lastBtnPress = m; }
       
-      lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); 
-      lcd.print("    "); // Limpa sobra do RPM
-      
-      lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); 
-      lcd.print("%     "); // Limpa sobra do TPS
-      
-      lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2);
-      lcd.print("   "); // Limpa sobra do MAP
-      
-      lcd.setCursor(8, 1); lcd.print(Tinj_latched, 2); 
-      lcd.print("ms "); // Limpa sobra do Tempo
+      lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("    ");
+      lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); lcd.print("%     ");
+      lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2); lcd.print("   ");
+      lcd.setCursor(8, 1); lcd.print(Tinj_latched, 2); lcd.print("ms ");
     } 
     else if (estadoAtual == MAPA_INJ) {
       if (!modoConfirmacao) {
-        // Logica de Botões e Aceleração
+        // Lógica de Edição com Aceleração (Já é semi-não bloqueante, mas ajustada)
         if (btn == 2 || btn == 3) {
           if (tempoBotaoRetido == 0) {
-            tempoBotaoRetido = millis();
+            tempoBotaoRetido = m;
             intervaloAceleracao = 300;
-            tBotao = 0;
+            tBotaoAcel = 0;
           }
-          if (millis() - tBotao > intervaloAceleracao) {
-            tBotao = millis();
-            if (millis() - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
-            else if (millis() - tempoBotaoRetido > 400) intervaloAceleracao = 150;
+          if (m - tBotaoAcel > (unsigned long)intervaloAceleracao) {
+            tBotaoAcel = m;
+            if (m - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
+            else if (m - tempoBotaoRetido > 400) intervaloAceleracao = 150;
 
             if (campoFoco == 0) { 
                if(btn == 2) editR = (editR + 1) % 16;
@@ -225,15 +226,18 @@ void loop() {
           }
         } else { tempoBotaoRetido = 0; }
 
-        if (btn == 1) { campoFoco = (campoFoco + 1) % 3; delay(200); }
-        if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; delay(200); }
-        if (btn == 5) { modoConfirmacao = true; lcd.clear(); }
+        // Navegação de Campos (RIGHT/LEFT/SELECT)
+        if (m - lastBtnPress > 200) {
+          if (btn == 1) { campoFoco = (campoFoco + 1) % 3; lastBtnPress = m; }
+          if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; lastBtnPress = m; }
+          if (btn == 5) { modoConfirmacao = true; lcd.clear(); lastBtnPress = m; }
+        }
 
-        // --- IMPRESSÃO NO LCD COM LIMPEZA DE SOMBRA ---
+        // --- Impressão LCD ---
         lcd.setCursor(0,0);
         if (campoFoco == 0 && blinkState) lcd.print("R:    "); 
         else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
-        lcd.print("     "); // Limpa rastro lateral
+        lcd.print("     ");
 
         lcd.setCursor(8,0);
         if (campoFoco == 1 && blinkState) lcd.print("M:    "); 
@@ -250,21 +254,24 @@ void loop() {
         lcd.print("    ");
 
       } else {
-        if (btn == 2 || btn == 3) { selecaoConfirmar = !selecaoConfirmar; delay(200); }
+        // Modo Confirmação
+        if (m - lastBtnPress > 200) {
+          if (btn == 2 || btn == 3) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
+          if (btn == 5) { 
+            if(selecaoConfirmar == 0) salvarTabela(); 
+            modoConfirmacao = false; estadoAtual = MENU_PRINCIPAL; lcd.clear(); lastBtnPress = m;
+          }
+        }
         lcd.setCursor(0,0); lcd.print("Deseja Salvar?  ");
         lcd.setCursor(0,1); 
-        lcd.print(selecaoConfirmar==0?">SIM  ":" SIM  "); 
-        lcd.print(selecaoConfirmar==1?">NAO ":" NAO ");
-        if (btn == 5) { 
-          if(selecaoConfirmar==0) salvarTabela(); 
-          modoConfirmacao=false; estadoAtual=MENU_PRINCIPAL; lcd.clear(); 
-        }
+        lcd.print(selecaoConfirmar == 0 ? ">SIM    " : " SIM    "); 
+        lcd.print(selecaoConfirmar == 1 ? ">NAO   " : " NAO   ");
       }
     } else {
-      if (btn == 4) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); }
+      if (btn == 4 && (m - lastBtnPress > 200)) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); lastBtnPress = m; }
       lcd.setCursor(0,0); lcd.print(nomesMenus[menuCursor]); lcd.print("           ");
       lcd.setCursor(0,1); lcd.print("EM DESENVOLVIM. ");
     }
-    tLCD = millis();
+    tLCD = m;
   }
 }
