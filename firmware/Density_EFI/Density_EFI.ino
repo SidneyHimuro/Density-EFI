@@ -9,7 +9,7 @@ enum MenuState { MENU_PRINCIPAL, MONITORAMENTO, MAPA_INJ, MAPA_IGN, FUNCOES, CON
 MenuState estadoAtual = MENU_PRINCIPAL;
 int menuCursor = 0;
 const int totalMenus = 5;
-String nomesMenus[] = {"MONITORAMENTO ", "MAPA INJCAO       ", "MAPA IGNICAO       ", "FUNCOES        ", "CONFIGURACAO  "};
+String nomesMenus[] = {"MONITORAMENTO ", "MAPA INJCAO     ", "MAPA IGNICAO     ", "FUNCOES        ", "CONFIGURACAO  "};
 
 // Variáveis de Edição e Interface
 int editR = 0, editM = 0; 
@@ -34,6 +34,12 @@ int subMenuCursor = 0;
 const int totalSubMenus = 3;
 String nomesSub[] = {"CALIBRAR TPS     ", "CALIBRAR MAP     ", "SINAL ROTACAO      "};
 
+// NOVO: Variáveis de Navegação para FUNCOES
+byte etapaFuncoes = 0; // 0: Menu, 1: Ajuste Sensib, 2: Ajuste Decaimento
+int subMenuFuncoesCursor = 0;
+const int totalSubFuncoes = 1;
+String nomesSubFuncoes[] = {"ACEL. RAPIDA    "};
+
 // ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
 byte pulsesPerRev = 60; // 60 para roda fônica, 1 para distribuidor
@@ -50,6 +56,18 @@ volatile bool injectorOn = false;
 volatile unsigned int injPulseTicksLatched = 0;
 float Tinj_latched = 0.0, lastValidTinj = 1.5;
 
+// ================= AE TPS =================
+float tpsPrev = 0.0;
+unsigned long tpsPrevTime = 0;
+
+float AE_TPS = 0.0;
+float AE_TPS_max = 3.0;        // ms máximo de enriquecimento
+float AE_decay_ms = 250.0;     // duração total do AE
+float AE_decay_step = 0.0;
+
+const float TPSDOT_MIN = 40.0; // %/s mínimo para ativar AE
+
+
 // ================= EIXOS E TABELA =================
 const int rpmAxis[16] = {500, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500};
 const float mapAxis[16] = {0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,-0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0};
@@ -60,6 +78,8 @@ const int addrTPSMin = 1030;
 const int addrTPSMax = 1034;
 const int addrMAPAtmos = 1038;
 const int addrSinalRPM = 1042;
+const int addrAEMax = 1046;   // Endereço novo para AE
+const int addrAEDecay = 1050; // Endereço novo para Decay
 
 // ================= FUNÇÕES AUXILIARES =================
 int lerBotao() {
@@ -70,6 +90,14 @@ int lerBotao() {
   if (val < 500)  return 4; // LEFT
   if (val < 750)  return 5; // SELECT
   return 0;
+}
+
+float calculaAE_TPS(float tpsDot) {
+  if (tpsDot < TPSDOT_MIN) return 0.0;
+  if (tpsDot < 100) return 0.6;
+  if (tpsDot < 200) return 1.2;
+  if (tpsDot < 350) return 2.0;
+  return AE_TPS_max;
 }
 
 void salvarTabela() {
@@ -97,7 +125,11 @@ void carregarTabela() {
     EEPROM.get(addrTPSMax, tpsMaxADC);
     EEPROM.get(addrMAPAtmos, mapAtmosADC);
     EEPROM.get(addrSinalRPM, pulsesPerRev);
+    EEPROM.get(addrAEMax, AE_TPS_max);
+    EEPROM.get(addrAEDecay, AE_decay_ms);
     if(pulsesPerRev != 60 && pulsesPerRev != 1) pulsesPerRev = 60;
+    if(isnan(AE_TPS_max)) AE_TPS_max = 3.0;
+    if(isnan(AE_decay_ms)) AE_decay_ms = 250.0;
   } else {
     for(int i=0; i<16; i++) for(int j=0; j<16; j++) injTable[i][j] = 1.5;
   }
@@ -136,7 +168,6 @@ ISR(TIMER3_COMPA_vect) {
   TIMSK3 &= ~(1 << OCIE3A);
 }
 
-// ================= SETUP =================
 void setup() {
   lcd.begin(16, 2);
   Serial.begin(115200);
@@ -150,10 +181,7 @@ void setup() {
   TCCR3A = 0; TCCR3B = (1 << WGM32) | (1 << CS31);
 }
 
-// ================= LOOP PRINCIPAL =================
 void loop() {
-
-  //================DashV1 Serial====================
   static unsigned long tSer = 0;
   if (millis() - tSer > 100) {
     Serial.print(rpm); Serial.print(","); Serial.print(mapBar); Serial.print(",");
@@ -166,6 +194,27 @@ void loop() {
   mapBar = constrain(mapBar, -1.0, 0.0);
   tpsPercent = constrain((float)(analogRead(tpsPin) - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC), 0, 100);
 
+  unsigned long nowTPS = millis();
+  float dtTPS = (nowTPS - tpsPrevTime) / 1000.0;
+
+  if (dtTPS > 0) {
+    float tpsDot = (tpsPercent - tpsPrev) / dtTPS;
+    if (tpsDot > TPSDOT_MIN && rpm > 400) {
+      AE_TPS = calculaAE_TPS(tpsDot);
+      AE_decay_step = AE_TPS / (AE_decay_ms / 10.0);
+    }
+  }
+
+  tpsPrev = tpsPercent;
+  tpsPrevTime = nowTPS;
+
+  static unsigned long lastAEDecay = 0;
+  if (AE_TPS > 0 && millis() - lastAEDecay >= 10) {
+    AE_TPS -= AE_decay_step;
+    if (AE_TPS < 0) AE_TPS = 0;
+    lastAEDecay = millis();
+  }
+
   unsigned long p;
   noInterrupts(); p = periodMicros; interrupts();
   if (p > 0 && (micros() - lastPulseMicros) < 300000) {
@@ -174,8 +223,10 @@ void loop() {
   }
   else { rpm = 0; syncOK = false; }
 
-  if (rpm > 400 && syncOK) lastValidTinj = interp2D(rpm, mapBar);
-  Tinj_latched = lastValidTinj;
+  if (rpm > 400 && syncOK) {
+    lastValidTinj = interp2D(rpm, mapBar);
+    Tinj_latched = lastValidTinj + AE_TPS;
+  }
   injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
 
   static unsigned long lastInj = 0;
@@ -203,7 +254,7 @@ void loop() {
       if (m - lastBtnPress > 200) {
         if (btn == 2) { menuCursor = (menuCursor - 1 + totalMenus) % totalMenus; lcd.clear(); lastBtnPress = m; }
         if (btn == 3) { menuCursor = (menuCursor + 1) % totalMenus; lcd.clear(); lastBtnPress = m; }
-        if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); etapaConfig = 0; subMenuCursor = 0; lcd.clear(); lastBtnPress = m; }
+        if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); etapaConfig = 0; etapaFuncoes = 0; subMenuCursor = 0; lcd.clear(); lastBtnPress = m; }
       }
       int itemTopo = (menuCursor / 2) * 2;
       int itemBaixo = itemTopo + 1;
@@ -216,6 +267,40 @@ void loop() {
         lcd.print(nomesMenus[itemBaixo]);
       } else { lcd.print("                "); }
     } 
+    else if (estadoAtual == FUNCOES) {
+      if (btn == 4 && (m - lastBtnPress > 200)) { 
+        if(etapaFuncoes > 0) { etapaFuncoes = 0; lcd.clear(); }
+        else { estadoAtual = MENU_PRINCIPAL; lcd.clear(); }
+        lastBtnPress = m; 
+      }
+      if (m - lastBtnPress > 200) {
+        if (etapaFuncoes == 0) {
+           lcd.setCursor(0,0); lcd.print("> ACEL. RAPIDA  ");
+           lcd.setCursor(0,1); lcd.print("                ");
+           if(btn == 5) { etapaFuncoes = 1; lcd.clear(); lastBtnPress = m; }
+        }
+        else if (etapaFuncoes == 1) { // Ajuste Ganho AE
+           lcd.setCursor(0,0); lcd.print("GANHO AE (ms)   ");
+           lcd.setCursor(0,1); lcd.print("VALOR: "); lcd.print(AE_TPS_max, 1);
+           if(btn == 2) { AE_TPS_max += 0.1; lastBtnPress = m; }
+           if(btn == 3) { AE_TPS_max -= 0.1; lastBtnPress = m; }
+           AE_TPS_max = constrain(AE_TPS_max, 0.0, 5.0);
+           if(btn == 5) { etapaFuncoes = 2; lcd.clear(); lastBtnPress = m; }
+        }
+        else if (etapaFuncoes == 2) { // Ajuste Decaimento
+           lcd.setCursor(0,0); lcd.print("DECAIMENTO (ms) ");
+           lcd.setCursor(0,1); lcd.print("VALOR: "); lcd.print((int)AE_decay_ms);
+           if(btn == 2) { AE_decay_ms += 10; lastBtnPress = m; }
+           if(btn == 3) { AE_decay_ms -= 10; lastBtnPress = m; }
+           AE_decay_ms = constrain(AE_decay_ms, 50, 1000);
+           if(btn == 5) { 
+              EEPROM.put(addrAEMax, AE_TPS_max); EEPROM.put(addrAEDecay, AE_decay_ms);
+              lcd.clear(); lcd.print("AE SALVO!"); delay(1000);
+              etapaFuncoes = 0; lcd.clear(); lastBtnPress = m; 
+           }
+        }
+      }
+    }
     else if (estadoAtual == CONFIGURACAO) {
       if (btn == 4 && (m - lastBtnPress > 200)) { 
         estadoAtual = MENU_PRINCIPAL; etapaConfig = 0; lcd.clear(); lastBtnPress = m; 
@@ -262,31 +347,22 @@ void loop() {
             etapaConfig = 0; lcd.clear(); lcd.print("MAP SALVO!"); delay(1000); lcd.clear(); lastBtnPress = m;
           }
         }
-        else if (etapaConfig == 4) { // ESCOLHA SINAL RPM (AJUSTADA VELOCIDADE)
+        else if (etapaConfig == 4) { // ESCOLHA SINAL RPM
           lcd.setCursor(0,0); lcd.print("TIPO SINAL RPM  ");
           lcd.setCursor(0,1);
-          if (btn == 2 || btn == 3) { 
-            pulsesPerRev = (pulsesPerRev == 60) ? 1 : 60; 
-            lastBtnPress = m; // Corrigido: Agora respeita o tempo do botão
-          }
+          if (btn == 2 || btn == 3) { pulsesPerRev = (pulsesPerRev == 60) ? 1 : 60; lastBtnPress = m; }
           lcd.print(pulsesPerRev == 60 ? "> 60-2 (FONICA) " : "> DISTRIBUIDOR  ");
           if (btn == 5) { etapaConfig = 5; selecaoConfirmar = 0; lcd.clear(); lastBtnPress = m; }
         }
-        else if (etapaConfig == 5) { // ITEM CRÍTICO - CONFIRMAÇÃO
+        else if (etapaConfig == 5) { // ITEM CRÍTICO
           lcd.setCursor(0,0); lcd.print(" ITEM CRITICO!! ");
           lcd.setCursor(0,1);
           if (btn == 1 || btn == 4) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
           lcd.print(selecaoConfirmar == 0 ? ">SALVAR  " : " SALVAR  ");
           lcd.print(selecaoConfirmar == 1 ? ">CANCELAR" : " CANCELAR");
-          
           if (btn == 5) {
-            if (selecaoConfirmar == 0) {
-               EEPROM.put(addrSinalRPM, pulsesPerRev);
-               lcd.clear(); lcd.print("SINAL SALVO!");
-            } else {
-               carregarTabela(); // Recarrega original
-               lcd.clear(); lcd.print("CANCELADO!");
-            }
+            if (selecaoConfirmar == 0) { EEPROM.put(addrSinalRPM, pulsesPerRev); lcd.clear(); lcd.print("SINAL SALVO!"); }
+            else { carregarTabela(); lcd.clear(); lcd.print("CANCELADO!"); }
             delay(1000); etapaConfig = 0; lcd.clear(); lastBtnPress = m;
           }
         }
