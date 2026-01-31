@@ -1,7 +1,10 @@
 #include <LiquidCrystal.h>
 #include <EEPROM.h>
+#include "Crank.h"
+#include "Injector.h"
 
 // ================= LCD =================
+// Shield Keyestudio usa pinos 8, 9, 4, 5, 6, 7
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
 // ================= ESTADOS DO MENU =================
@@ -9,7 +12,7 @@ enum MenuState { MENU_PRINCIPAL, MONITORAMENTO, MAPA_INJ, MAPA_IGN, FUNCOES, CON
 MenuState estadoAtual = MENU_PRINCIPAL;
 int menuCursor = 0;
 const int totalMenus = 5;
-String nomesMenus[] = {"MONITORAMENTO ", "MAPA INJCAO     ", "MAPA IGNICAO     ", "FUNCOES        ", "CONFIGURACAO  "};
+String nomesMenus[] = {"MONITORAMENTO ", "MAPA INJCAO     ", "MAPA IGNICAO     ", "FUNCOES         ", "CONFIGURACAO  "};
 
 // Variáveis de Edição e Interface
 int editR = 0, editM = 0; 
@@ -23,50 +26,20 @@ unsigned long lastBtnPress = 0;
 // ================= SENSORES =================
 const byte mapPin = A4;
 const byte tpsPin = A3; 
-const int adc_1V = 205, adc_5V = 1023;
 int tpsMinADC = 100, tpsMaxADC = 900; 
-int mapAtmosADC = 940; // Referência 0.00 bar
+int mapAtmosADC = 940; 
 float mapBar = 0.0, tpsPercent = 0.0;
 
-// Variáveis de Calibração (Submenu Carrossel)
-byte etapaConfig = 0; // 0: Carrossel, 1-2: TPS, 3: MAP, 4: Sinal RPM, 5: Confirmação Crítica
+// Variáveis de Navegação Submenus
+byte etapaConfig = 0;
 int subMenuCursor = 0;
 const int totalSubMenus = 3;
 String nomesSub[] = {"CALIBRAR TPS     ", "CALIBRAR MAP     ", "SINAL ROTACAO      "};
 
-// NOVO: Variáveis de Navegação para FUNCOES
-byte etapaFuncoes = 0; // 0: Menu, 1: Ajuste Sensib, 2: Ajuste Decaimento
+byte etapaFuncoes = 0; 
 int subMenuFuncoesCursor = 0;
 const int totalSubFuncoes = 1;
 String nomesSubFuncoes[] = {"ACEL. RAPIDA    "};
-
-// ================= RPM / RODA FÔNICA =================
-const byte rpmPin = 21;
-byte pulsesPerRev = 60; // 60 para roda fônica, 1 para distribuidor
-const byte INJ_TOOTH = 21;
-volatile unsigned long lastPulseMicros = 0, periodMicros = 0, avgPeriod = 0;
-volatile byte toothCount = 0;
-volatile bool syncOK = false;
-volatile unsigned long lastPmsMicros = 0;
-unsigned int rpm = 0;
-
-// ================= INJETOR =================
-#define INJ_PIN 22
-volatile bool injectorOn = false;
-volatile unsigned int injPulseTicksLatched = 0;
-float Tinj_latched = 0.0, lastValidTinj = 1.5;
-
-// ================= AE TPS =================
-float tpsPrev = 0.0;
-unsigned long tpsPrevTime = 0;
-
-float AE_TPS = 0.0;
-float AE_TPS_max = 3.0;        // ms máximo de enriquecimento
-float AE_decay_ms = 250.0;     // duração total do AE
-float AE_decay_step = 0.0;
-
-const float TPSDOT_MIN = 40.0; // %/s mínimo para ativar AE
-
 
 // ================= EIXOS E TABELA =================
 const int rpmAxis[16] = {500, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500};
@@ -74,30 +47,18 @@ const float mapAxis[16] = {0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,-0.56,-
 float injTable[16][16]; 
 
 // ================= EEPROM ADDRESSES =================
-const int addrTPSMin = 1030;
-const int addrTPSMax = 1034;
-const int addrMAPAtmos = 1038;
-const int addrSinalRPM = 1042;
-const int addrAEMax = 1046;   // Endereço novo para AE
-const int addrAEDecay = 1050; // Endereço novo para Decay
+const int addrTPSMin = 1030, addrTPSMax = 1034, addrMAPAtmos = 1038;
+const int addrSinalRPM = 1042, addrAEMax = 1046, addrAEDecay = 1050;
 
-// ================= FUNÇÕES AUXILIARES =================
+// ================= FUNÇÕES DE APOIO =================
 int lerBotao() {
   int val = analogRead(0);
   if (val < 50)   return 1; // RIGHT
   if (val < 150)  return 2; // UP
-  if (val < 350)  return 3; // DOWN
+  if (val < 350)  return 3; // DOWN (Ajustado para o Shield)
   if (val < 500)  return 4; // LEFT
   if (val < 750)  return 5; // SELECT
   return 0;
-}
-
-float calculaAE_TPS(float tpsDot) {
-  if (tpsDot < TPSDOT_MIN) return 0.0;
-  if (tpsDot < 100) return 0.6;
-  if (tpsDot < 200) return 1.2;
-  if (tpsDot < 350) return 2.0;
-  return AE_TPS_max;
 }
 
 void salvarTabela() {
@@ -108,6 +69,9 @@ void salvarTabela() {
       addr += sizeof(float);
     }
   }
+  // Salva também parâmetros de injeção
+  EEPROM.put(addrAEMax, AE_TPS_max);
+  EEPROM.put(addrAEDecay, AE_decay_ms);
 }
 
 void carregarTabela() {
@@ -127,9 +91,6 @@ void carregarTabela() {
     EEPROM.get(addrSinalRPM, pulsesPerRev);
     EEPROM.get(addrAEMax, AE_TPS_max);
     EEPROM.get(addrAEDecay, AE_decay_ms);
-    if(pulsesPerRev != 60 && pulsesPerRev != 1) pulsesPerRev = 60;
-    if(isnan(AE_TPS_max)) AE_TPS_max = 3.0;
-    if(isnan(AE_decay_ms)) AE_decay_ms = 250.0;
   } else {
     for(int i=0; i<16; i++) for(int j=0; j<16; j++) injTable[i][j] = 1.5;
   }
@@ -146,105 +107,62 @@ float interp2D(int rpmVal, float mapVal) {
   return a + fm * (b - a);
 }
 
-void rpmISR() {
-  unsigned long now = micros();
-  unsigned long p = now - lastPulseMicros;
-  lastPulseMicros = now;
-  if (pulsesPerRev == 60) {
-    if (avgPeriod == 0) avgPeriod = p;
-    else avgPeriod = (avgPeriod * 7 + p) / 8;
-    if (p > avgPeriod * 1.8) { toothCount = 0; syncOK = true; }
-    else if (syncOK) { toothCount++; if (toothCount >= pulsesPerRev) toothCount = 0; }
-    if (syncOK && toothCount == INJ_TOOTH) lastPmsMicros = now;
-  } else {
-    syncOK = true;
-  }
-  periodMicros = p;
-}
-
-ISR(TIMER3_COMPA_vect) {
-  digitalWrite(INJ_PIN, LOW);
-  injectorOn = false;
-  TIMSK3 &= ~(1 << OCIE3A);
-}
-
+// ================= SETUP & LOOP =================
 void setup() {
   lcd.begin(16, 2);
   Serial.begin(115200);
+  
   carregarTabela();
-  lcd.setCursor(0, 0); lcd.print("HimuroPerformance");
+  setupCrank();    // Inicializa RPM (Pino 21)
+  setupInjector(); // Inicializa Injetor (Pino 22 conforme Injector.h)
+
+  lcd.print("HimuroPerform.");
   lcd.setCursor(0, 1); lcd.print("Density EFI v1.0");
-  delay(2000); 
-  lcd.clear();
-  pinMode(rpmPin, INPUT_PULLUP); pinMode(INJ_PIN, OUTPUT);
-  attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
-  TCCR3A = 0; TCCR3B = (1 << WGM32) | (1 << CS31);
+  delay(2000); lcd.clear();
 }
 
 void loop() {
+  // 1. Leituras de Sensores
+  int mapADC = analogRead(mapPin);
+  
+  // Cálculo baseado na inclinação do sensor GM 1-Bar
+  // mapAtmosADC é o seu ponto de referência (100kPa). 
+  // Cada 1kPa no sensor GM equivale a aproximadamente 10 unidades de ADC no Arduino.
+  float kpaFaltante = (float)(mapAtmosADC - mapADC) / 10.24; 
+  
+  // mapBar: 0.0 é atmosfera, -0.80 é vácuo forte.
+  mapBar = -(kpaFaltante / 100.0); 
+
+  // Garante que o vácuo não ultrapasse os limites da sua tabela (Eixo de 0.0 a -1.0)
+  mapBar = constrain(mapBar, -1.0, 0.0);
+  
+  tpsPercent = constrain((float)(analogRead(tpsPin) - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC), 0, 100);
+
+  // 2. Atualização de Estados (RPM e Enriquecimento)
+  updateCrankRPM();
+  updateInjectorAE(tpsPercent, rpm);
+
+  // 3. Cálculo do Tempo de Injeção Base
+  if (rpm > 40 && syncOK) { // Reduzi de 400 para 40 para permitir leitura na partida
+    Tinj_latched = interp2D(rpm, mapBar);
+  } else {
+    Tinj_latched = 0; 
+  }
+
+  // 4. Execução da Injeção (Timer 4 disparado aqui)
+  runInjector(rpm, tpsPercent);
+
+  // 5. Telemetria Serial
   static unsigned long tSer = 0;
   if (millis() - tSer > 100) {
     Serial.print(rpm); Serial.print(","); Serial.print(mapBar); Serial.print(",");
-    Serial.print(tpsPercent); Serial.print(","); Serial.println(Tinj_latched);
+    Serial.print(tpsPercent, 1); Serial.print(","); Serial.println(Tinj_latched + AE_TPS);
     tSer = millis();
   }
 
-  int mapADC = analogRead(mapPin);
-  mapBar = (float)(mapADC - mapAtmosADC) / 920.0;
-  mapBar = constrain(mapBar, -1.0, 0.0);
-  tpsPercent = constrain((float)(analogRead(tpsPin) - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC), 0, 100);
-
-  unsigned long nowTPS = millis();
-  float dtTPS = (nowTPS - tpsPrevTime) / 1000.0;
-
-  if (dtTPS > 0) {
-    float tpsDot = (tpsPercent - tpsPrev) / dtTPS;
-    if (tpsDot > TPSDOT_MIN && rpm > 400) {
-      AE_TPS = calculaAE_TPS(tpsDot);
-      AE_decay_step = AE_TPS / (AE_decay_ms / 10.0);
-    }
-  }
-
-  tpsPrev = tpsPercent;
-  tpsPrevTime = nowTPS;
-
-  static unsigned long lastAEDecay = 0;
-  if (AE_TPS > 0 && millis() - lastAEDecay >= 10) {
-    AE_TPS -= AE_decay_step;
-    if (AE_TPS < 0) AE_TPS = 0;
-    lastAEDecay = millis();
-  }
-
-  unsigned long p;
-  noInterrupts(); p = periodMicros; interrupts();
-  if (p > 0 && (micros() - lastPulseMicros) < 300000) {
-      if(pulsesPerRev == 60) rpm = 60000000UL / (p * pulsesPerRev);
-      else rpm = 60000000UL / (p * 2);
-  }
-  else { rpm = 0; syncOK = false; }
-
-  if (rpm > 400 && syncOK) {
-    lastValidTinj = interp2D(rpm, mapBar);
-    Tinj_latched = lastValidTinj + AE_TPS;
-  }
-  injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
-
-  static unsigned long lastInj = 0;
-  if (!injectorOn && rpm > 0) {
-    unsigned long interval = 60000000UL / rpm;
-    if (micros() - lastInj >= interval) {
-      lastInj = micros();
-      if (injPulseTicksLatched > 50) {
-        digitalWrite(INJ_PIN, HIGH); injectorOn = true;
-        TCNT3 = 0; OCR3A = injPulseTicksLatched;
-        TIFR3 |= (1 << OCF3A); TIMSK3 |= (1 << OCIE3A);
-      }
-    }
-  }
-
+  // --- Lógica de LCD e Menu ---
   static unsigned long tLCD = 0;
   static unsigned long tBotaoAcel = 0; 
-
   if (millis() - tLCD > 80) { 
     int btn = lerBotao();
     unsigned long m = millis();
@@ -279,7 +197,7 @@ void loop() {
            lcd.setCursor(0,1); lcd.print("                ");
            if(btn == 5) { etapaFuncoes = 1; lcd.clear(); lastBtnPress = m; }
         }
-        else if (etapaFuncoes == 1) { // Ajuste Ganho AE
+        else if (etapaFuncoes == 1) {
            lcd.setCursor(0,0); lcd.print("GANHO AE (ms)   ");
            lcd.setCursor(0,1); lcd.print("VALOR: "); lcd.print(AE_TPS_max, 1);
            if(btn == 2) { AE_TPS_max += 0.1; lastBtnPress = m; }
@@ -287,7 +205,7 @@ void loop() {
            AE_TPS_max = constrain(AE_TPS_max, 0.0, 5.0);
            if(btn == 5) { etapaFuncoes = 2; lcd.clear(); lastBtnPress = m; }
         }
-        else if (etapaFuncoes == 2) { // Ajuste Decaimento
+        else if (etapaFuncoes == 2) {
            lcd.setCursor(0,0); lcd.print("DECAIMENTO (ms) ");
            lcd.setCursor(0,1); lcd.print("VALOR: "); lcd.print((int)AE_decay_ms);
            if(btn == 2) { AE_decay_ms += 10; lastBtnPress = m; }
@@ -324,37 +242,37 @@ void loop() {
             lcd.print(subMenuCursor == subBaixo ? "> " : "  "); lcd.print(nomesSub[subBaixo]);
           } else { lcd.print("                "); }
         }
-        else if (etapaConfig == 1) { // TPS 0%
+        else if (etapaConfig == 1) { 
           lcd.setCursor(0,0); lcd.print("TPS 0% (SOLTO)  ");
           lcd.setCursor(0,1); lcd.print("ADC: "); lcd.print(analogRead(tpsPin)); lcd.print(" SEL");
           if (btn == 5) { tpsMinADC = analogRead(tpsPin); etapaConfig = 2; lcd.clear(); lastBtnPress = m; }
         }
-        else if (etapaConfig == 2) { // TPS 100%
+        else if (etapaConfig == 2) { 
           lcd.setCursor(0,0); lcd.print("TPS 100%(FUNDO) ");
-          lcd.setCursor(0,1); lcd.print("ADC: "); lcd.print(analogRead(tpsPin)); lcd.print("      ");
+          lcd.setCursor(0,1); lcd.print("ADC: "); lcd.print(analogRead(tpsPin)); 
           if (btn == 5) { 
             tpsMaxADC = analogRead(tpsPin); 
             EEPROM.put(addrTPSMin, tpsMinADC); EEPROM.put(addrTPSMax, tpsMaxADC);
             etapaConfig = 0; lcd.clear(); lcd.print("TPS SALVO!"); delay(1000); lcd.clear(); lastBtnPress = m; 
           }
         }
-        else if (etapaConfig == 3) { // MAP
+        else if (etapaConfig == 3) { 
           lcd.setCursor(0,0); lcd.print("MAP ATMOSFERICO ");
-          lcd.setCursor(0,1); lcd.print("ADC: "); lcd.print(mapADC); lcd.print("     ");
+          lcd.setCursor(0,1); lcd.print("ADC: "); lcd.print(mapADC);
           if (btn == 5) {
             mapAtmosADC = mapADC;
             EEPROM.put(addrMAPAtmos, mapAtmosADC);
             etapaConfig = 0; lcd.clear(); lcd.print("MAP SALVO!"); delay(1000); lcd.clear(); lastBtnPress = m;
           }
         }
-        else if (etapaConfig == 4) { // ESCOLHA SINAL RPM
+        else if (etapaConfig == 4) { 
           lcd.setCursor(0,0); lcd.print("TIPO SINAL RPM  ");
           lcd.setCursor(0,1);
           if (btn == 2 || btn == 3) { pulsesPerRev = (pulsesPerRev == 60) ? 1 : 60; lastBtnPress = m; }
           lcd.print(pulsesPerRev == 60 ? "> 60-2 (FONICA) " : "> DISTRIBUIDOR  ");
           if (btn == 5) { etapaConfig = 5; selecaoConfirmar = 0; lcd.clear(); lastBtnPress = m; }
         }
-        else if (etapaConfig == 5) { // ITEM CRÍTICO
+        else if (etapaConfig == 5) { 
           lcd.setCursor(0,0); lcd.print(" ITEM CRITICO!! ");
           lcd.setCursor(0,1);
           if (btn == 1 || btn == 4) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
@@ -373,7 +291,7 @@ void loop() {
       lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("    ");
       lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); lcd.print("%  ");
       lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2); lcd.print("  ");
-      lcd.setCursor(8, 1); lcd.print(Tinj_latched, 2); lcd.print("ms ");
+      lcd.setCursor(8, 1); lcd.print(Tinj_latched + AE_TPS, 2); lcd.print("ms ");
     }
     else if (estadoAtual == MAPA_INJ) {
       if (!modoConfirmacao) {
@@ -397,10 +315,10 @@ void loop() {
           if (btn == 5) { modoConfirmacao = true; lcd.clear(); lastBtnPress = m; }
         }
         lcd.setCursor(0,0);
-        if (campoFoco == 0 && blinkState) lcd.print("R:    "); else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
+        if (campoFoco == 0 && blinkState) lcd.print("R:     "); else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
         lcd.print("     ");
         lcd.setCursor(8,0);
-        if (campoFoco == 1 && blinkState) lcd.print("M:    "); else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
+        if (campoFoco == 1 && blinkState) lcd.print("M:     "); else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
         lcd.print("    ");
         lcd.setCursor(0,1);
         if (campoFoco == 2 && blinkState) lcd.print("T.Inj:       "); else { lcd.print("T.Inj: "); lcd.print(injTable[editR][editM],2); lcd.print("ms"); }
