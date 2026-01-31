@@ -1,209 +1,254 @@
 #include <LiquidCrystal.h>
+#include <EEPROM.h>
 
 // ================= LCD =================
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
+// ================= ESTADOS DO MENU =================
+enum MenuState { MENU_PRINCIPAL, MONITORAMENTO, MAPA_INJ, MAPA_IGN, FUNCOES, CONFIGURACAO };
+MenuState estadoAtual = MENU_PRINCIPAL;
+int menuCursor = 0;
+const int totalMenus = 5;
+String nomesMenus[] = {"MONITORAMENTO ", "MAPA INJCAO     ", "MAPA IGNICAO     ", "FUNCOES        ", "CONFIGURACAO  "};
+
+// Variáveis de Interface
+int editR = 0, editM = 0; 
+byte campoFoco = 0; 
+bool modoConfirmacao = false;
+int selecaoConfirmar = 0; 
+unsigned long tempoBotaoRetido = 0;
+int intervaloAceleracao = 250; 
+unsigned long lastBtnPress = 0; 
+
+// ================= SENSORES E FILTRAGEM =================
+const byte mapPin = A4;
+const byte tpsPin = A3; 
+int tpsMinADC = 100, tpsMaxADC = 900; 
+int mapAtmosADC = 940; 
+float mapBar = 0.0, tpsPercent = 0.0;
+float mapFiltrado = 0.0; 
+
 // ================= RPM / RODA FÔNICA =================
 const byte rpmPin = 21;
-const byte pulsesPerRev = 60;      // 60-2
-const byte INJ_TOOTH = 21;         // dente PMS
-
-volatile unsigned long lastPulseMicros = 0;
-volatile unsigned long periodMicros = 0;
-volatile unsigned long avgPeriod = 0;   // <<< filtro
-
+byte pulsesPerRev = 60; 
+const byte INJ_TOOTH = 21; // Dente para disparar a injeção
+volatile unsigned long lastPulseMicros = 0, periodMicros = 0, avgPeriod = 0;
 volatile byte toothCount = 0;
 volatile bool syncOK = false;
-
-// PMS agora é TEMPO, não bool
-volatile unsigned long lastPmsMicros = 0;
-
 unsigned int rpm = 0;
-
-// ================= MAP =================
-const byte mapPin = A4;
-const int adc_1V = 205;
-const int adc_5V = 1023;
-float mapBar = 0.0;
-
-// ================= TPS =================
-const byte tpsPin = A5;
-const int tpsMinADC = 100;
-const int tpsMaxADC = 900;
-float tpsPercent = 0.0;
 
 // ================= INJETOR =================
 #define INJ_PIN 22
-
 volatile bool injectorOn = false;
-volatile unsigned int injPulseTicksLatched = 0;
-
-float Tinj_calc = 0.0;
+volatile unsigned int injPulseTicksLatched = 0; // Calculado no loop, lido na ISR
 float Tinj_latched = 0.0;
-float lastValidTinj = 1.5;   // <<< fallback ECU-like
 
-// ================= EIXOS =================
-const int rpmAxis[16] = {
-   500, 800, 1200, 1600, 2000, 2500, 3000, 3500,
-  4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500
-};
+// ================= AE TPS (ACELERAÇÃO RÁPIDA) =================
+float tpsPrev = 0.0;
+unsigned long tpsPrevTime = 0;
+float AE_TPS = 0.0;
+float AE_TPS_max = 3.0;        
+float AE_decay_ms = 250.0;     
+float AE_decay_step = 0.0;
+const float TPSDOT_MIN = 60.0; // Sensibilidade para evitar ruído
 
-const float mapAxis[16] = {
-   0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,
-  -0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0
-};
+// ================= MAPA E EIXOS =================
+const int rpmAxis[16] = {500, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500};
+const float mapAxis[16] = {0.0,-0.07,-0.14,-0.21,-0.28,-0.35,-0.42,-0.49,-0.56,-0.63,-0.70,-0.77,-0.84,-0.91,-0.96,-1.0};
+float injTable[16][16]; 
 
-// ================= TABELA =================
-float injTable[16][16] = {
- {1.2,1.1,1.0,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.5,0.5,0.5,0.5,0.5},
- {1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.7,0.7,0.6,0.6,0.6,0.6,0.6},
- {1.8,1.7,1.6,1.5,1.4,1.3,1.2,1.1,1.0,0.9,0.9,0.8,0.8,0.8,0.8,0.8},
- {2.2,2.1,2.0,1.9,1.8,1.7,1.6,1.5,1.4,1.3,1.2,1.1,1.1,1.1,1.1,1.1},
- {2.6,2.5,2.4,2.3,2.2,2.1,2.0,1.9,1.8,1.7,1.6,1.5,1.4,1.4,1.4,1.4},
- {3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.2,2.1,2.0,1.9,1.8,1.7,1.7,1.7},
- {3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.3,2.2,2.1,2.0,2.0},
- {3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.7,2.6,2.5,2.4,2.4},
- {4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.1,3.0,2.9,2.8,2.8},
- {4.6,4.5,4.4,4.3,4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.5,3.4,3.3,3.2,3.2},
- {5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.3,4.2,4.1,4.0,3.9,3.8,3.7,3.6,3.6},
- {5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.3,4.2,4.1,4.0,4.0},
- {5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.7,4.6,4.5,4.4,4.4},
- {6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.1,5.0,4.9,4.8,4.8},
- {6.6,6.5,6.4,6.3,6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.5,5.4,5.3,5.2,5.2},
- {7.0,6.9,6.8,6.7,6.6,6.5,6.4,6.3,6.2,6.1,6.0,5.9,5.8,5.7,5.6,5.6}
-};
+// Endereços EEPROM
+const int addrTPSMin = 1030, addrTPSMax = 1034, addrMAPAtmos = 1038, addrSinalRPM = 1042, addrAEMax = 1046, addrAEDecay = 1050;
 
-// ================= INTERPOLAÇÃO =================
-float interp2D(int rpmVal, float mapVal) {
-  byte iR = 0, iM = 0;
-  while (iR < 14 && rpmVal > rpmAxis[iR + 1]) iR++;
-  while (iM < 14 && mapVal < mapAxis[iM + 1]) iM++;
-
-  float fr = (float)(rpmVal - rpmAxis[iR]) / (rpmAxis[iR + 1] - rpmAxis[iR]);
-  float fm = (float)(mapVal - mapAxis[iM]) / (mapAxis[iM + 1] - mapAxis[iM]);
-
-  float a = injTable[iR][iM]     + fr * (injTable[iR + 1][iM]     - injTable[iR][iM]);
-  float b = injTable[iR][iM + 1] + fr * (injTable[iR + 1][iM + 1] - injTable[iR][iM + 1]);
-
-  return a + fm * (b - a);
+// ================= ISR DO TIMER 3 (FECHAMENTO DO INJETOR) =================
+ISR(TIMER3_COMPA_vect) {
+  digitalWrite(INJ_PIN, LOW);
+  injectorOn = false;
+  TIMSK3 &= ~(1 << OCIE3A); // Desliga interrupção
 }
 
-// ================= RPM ISR =================
+// ================= ISR DE ROTAÇÃO (ABERTURA DO INJETOR) =================
 void rpmISR() {
   unsigned long now = micros();
   unsigned long p = now - lastPulseMicros;
   lastPulseMicros = now;
 
-  if (avgPeriod == 0) avgPeriod = p;
-  else avgPeriod = (avgPeriod * 7 + p) / 8;
+  if (pulsesPerRev == 60) { // Lógica Roda Fônica
+    if (avgPeriod == 0) avgPeriod = p;
+    else avgPeriod = (avgPeriod * 7 + p) / 8;
 
-  if (p > avgPeriod * 1.8) {   // <<< gap robusto
-    toothCount = 0;
+    if (p > avgPeriod * 1.6) { // Gap detectado
+      toothCount = 0;
+      syncOK = true;
+    } else if (syncOK) {
+      toothCount++;
+      if (toothCount >= pulsesPerRev) toothCount = 0;
+    }
+
+    // DISPARO IMEDIATO: Garante estabilidade no osciloscópio
+    if (syncOK && toothCount == INJ_TOOTH && !injectorOn) {
+      if (injPulseTicksLatched > 100) { // Min 50us para segurança
+        digitalWrite(INJ_PIN, HIGH);
+        injectorOn = true;
+        TCNT3 = 0; 
+        OCR3A = injPulseTicksLatched;
+        TIFR3 |= (1 << OCF3A); 
+        TIMSK3 |= (1 << OCIE3A);
+      }
+    }
+  } else { // Distribuidor
     syncOK = true;
-  } else if (syncOK) {
-    toothCount++;
-    if (toothCount >= pulsesPerRev) toothCount = 0;
+    digitalWrite(INJ_PIN, HIGH);
+    injectorOn = true;
+    TCNT3 = 0;
+    OCR3A = injPulseTicksLatched;
+    TIMSK3 |= (1 << OCIE3A);
   }
-
-  if (syncOK && toothCount == INJ_TOOTH) {
-    lastPmsMicros = now;       // <<< PMS latched
-  }
-
   periodMicros = p;
-}
-
-// ================= TIMER3 ISR =================
-ISR(TIMER3_COMPA_vect) {
-  digitalWrite(INJ_PIN, LOW);
-  injectorOn = false;
-  TIMSK3 &= ~(1 << OCIE3A);
 }
 
 // ================= SETUP =================
 void setup() {
   lcd.begin(16, 2);
   Serial.begin(115200);
-
+  carregarTabela();
+  
   pinMode(rpmPin, INPUT_PULLUP);
   pinMode(INJ_PIN, OUTPUT);
   digitalWrite(INJ_PIN, LOW);
 
-  attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
-
+  // Configuração Timer 3 (Modo CTC, Prescaler 8 = 0.5us por tick)
   TCCR3A = 0;
   TCCR3B = (1 << WGM32) | (1 << CS31);
+
+  attachInterrupt(digitalPinToInterrupt(rpmPin), rpmISR, RISING);
+  
+  lcd.setCursor(0, 0); lcd.print("HimuroPerformance");
+  lcd.setCursor(0, 1); lcd.print("Fixed EFI v1.1");
+  delay(1500); lcd.clear();
 }
 
 // ================= LOOP =================
 void loop() {
+  // 1. LEITURA E FILTRAGEM (Remove jitter de sensores)
+  int mapRaw = analogRead(mapPin);
+  mapFiltrado = (mapFiltrado * 0.7) + (mapRaw * 0.3); // Média móvel exponencial
+  mapBar = constrain((mapFiltrado - mapAtmosADC) / 920.0, -1.0, 0.0);
 
-  // ---------- TPS ----------
-  int tpsADC = analogRead(tpsPin);
-  tpsPercent = constrain(
-    (float)(tpsADC - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC),
-    0, 100
-  );
+  int tpsRaw = analogRead(tpsPin);
+  float tpsLido = constrain((float)(tpsRaw - tpsMinADC) * 100.0 / (tpsMaxADC - tpsMinADC), 0, 100);
+  tpsPercent = (tpsPercent * 0.5) + (tpsLido * 0.5);
 
-  // ---------- RPM ----------
+  // 2. CÁLCULO DE RPM
   unsigned long p;
-  noInterrupts();
-  p = periodMicros;
-  interrupts();
-
-  if (p > 0 && (micros() - lastPulseMicros) < 300000) {
-    rpm = 60000000UL / (p * pulsesPerRev);
+  noInterrupts(); p = periodMicros; interrupts();
+  if (p > 0 && (micros() - lastPulseMicros) < 250000) {
+    rpm = (pulsesPerRev == 60) ? (60000000UL / (p * 60)) : (30000000UL / p);
   } else {
-    rpm = 0;
-    syncOK = false;
+    rpm = 0; syncOK = false;
   }
 
-  // ---------- MAP ----------
-  int mapADC = analogRead(mapPin);
-  if (mapADC <= adc_1V) mapBar = 0.0;
-  else if (mapADC >= adc_5V) mapBar = -1.0;
-  else mapBar = -(float)(mapADC - adc_1V) / (adc_5V - adc_1V);
-
-  // ---------- CÁLCULO DE INJEÇÃO ----------
-  if (rpm > 400 && syncOK) {
-    Tinj_calc = interp2D(rpm, mapBar);
-    lastValidTinj = Tinj_calc;    // <<< nunca zera
+  // 3. ACELERAÇÃO RÁPIDA (AE)
+  unsigned long agora = millis();
+  if (agora - tpsPrevTime > 20) {
+    float dt = (agora - tpsPrevTime) / 1000.0;
+    float tpsDot = (tpsPercent - tpsPrev) / dt;
+    
+    if (tpsDot > TPSDOT_MIN && rpm > 400) {
+      AE_TPS = (tpsDot > 250) ? AE_TPS_max : (AE_TPS_max * 0.6);
+      AE_decay_step = AE_TPS / (AE_decay_ms / 20.0);
+    } else if (AE_TPS > 0) {
+      AE_TPS -= AE_decay_step;
+      if (AE_TPS < 0) AE_TPS = 0;
+    }
+    tpsPrev = tpsPercent;
+    tpsPrevTime = agora;
   }
 
-  Tinj_latched = lastValidTinj;
-  injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
+  // 4. CÁLCULO DO TEMPO DE INJEÇÃO
+  if (rpm > 100) {
+    float Tbase = interp2D(rpm, mapBar);
+    Tinj_latched = Tbase + AE_TPS;
+    // Converte ms para ticks (1ms = 2000 ticks)
+    noInterrupts();
+    injPulseTicksLatched = (unsigned int)(Tinj_latched * 2000.0);
+    interrupts();
+  }
 
-  // ---------- DISPARO DA INJEÇÃO ----------
-  static unsigned long lastInjection = 0;
-  if (!injectorOn && rpm > 0) {
-    unsigned long injInterval = 60000000UL / rpm;
+  // 5. GERENCIAMENTO DE MENUS (Não bloqueante)
+  atualizarInterface();
+}
 
-    if (micros() - lastInjection >= injInterval) {
-      lastInjection = micros();
+// ================= FUNÇÕES DE APOIO =================
 
-      if (injPulseTicksLatched > 50) {
-        digitalWrite(INJ_PIN, HIGH);
-        injectorOn = true;
+float interp2D(int rpmVal, float mapVal) {
+  byte iR = 0, iM = 0;
+  while (iR < 14 && rpmVal > rpmAxis[iR + 1]) iR++;
+  while (iM < 14 && mapVal < mapAxis[iM + 1]) iM++;
+  float fr = (float)(rpmVal - rpmAxis[iR]) / (rpmAxis[iR + 1] - rpmAxis[iR]);
+  float fm = (float)(mapVal - mapAxis[iM]) / (mapAxis[iM + 1] - mapAxis[iM]);
+  float a = injTable[iR][iM] + fr * (injTable[iR + 1][iM] - injTable[iR][iM]);
+  float b = injTable[iR][iM + 1] + fr * (injTable[iR + 1][iM + 1] - injTable[iR][iM + 1]);
+  return a + fm * (b - a);
+}
 
-        TCNT3 = 0;
-        OCR3A = injPulseTicksLatched;
-        TIFR3 |= (1 << OCF3A);
-        TIMSK3 |= (1 << OCIE3A);
+void carregarTabela() {
+  float val;
+  EEPROM.get(0, val);
+  if (!isnan(val) && val > 0.05) {
+    int addr = 0;
+    for (int i = 0; i < 16; i++) {
+      for (int j = 0; j < 16; j++) {
+        EEPROM.get(addr, injTable[i][j]);
+        addr += sizeof(float);
       }
     }
+    EEPROM.get(addrTPSMin, tpsMinADC);
+    EEPROM.get(addrTPSMax, tpsMaxADC);
+    EEPROM.get(addrMAPAtmos, mapAtmosADC);
+    EEPROM.get(addrSinalRPM, pulsesPerRev);
+    EEPROM.get(addrAEMax, AE_TPS_max);
+    EEPROM.get(addrAEDecay, AE_decay_ms);
+  } else {
+    for(int i=0; i<16; i++) for(int j=0; j<16; j++) injTable[i][j] = 2.0;
   }
+}
 
-  // ---------- SERIAL DASH ----------
-  static unsigned long tSerial = 0;
-  if (millis() - tSerial > 100) {
-    Serial.print(rpm); Serial.print(",");
-    Serial.print(mapBar); Serial.print(",");
-    Serial.print(tpsPercent); Serial.print(",");
-    Serial.println(Tinj_latched);
-    tSerial = millis();
+void salvarTabela() {
+  int addr = 0;
+  for (int i = 0; i < 16; i++) {
+    for (int j = 0; j < 16; j++) {
+      EEPROM.put(addr, injTable[i][j]);
+      addr += sizeof(float);
+    }
   }
+}
 
-  // ---------- LCD ----------
-  lcd.setCursor(0,0); lcd.print("RPM:"); lcd.print(rpm);
-  lcd.setCursor(0,1); lcd.print("MAP:"); lcd.print(mapBar,2);
-  lcd.setCursor(10,1); lcd.print("T:"); lcd.print(Tinj_latched,2);
+// ================= LOGICA DE INTERFACE (RESUMIDA) =================
+void atualizarInterface() {
+  static unsigned long tLCD = 0;
+  if (millis() - tLCD < 100) return;
+  tLCD = millis();
+
+  int btn = lerBotao();
+  unsigned long m = millis();
+  bool blink = (m / 400) % 2;
+
+  // Lógica de navegação de menus (similar à sua original, porém otimizada)
+  if (estadoAtual == MONITORAMENTO) {
+    if (btn == 4) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); lastBtnPress = m; }
+    lcd.setCursor(0, 0); lcd.print("RPM:"); lcd.print(rpm); lcd.print("    ");
+    lcd.setCursor(9, 0); lcd.print("T:"); lcd.print((int)tpsPercent); lcd.print("% ");
+    lcd.setCursor(0, 1); lcd.print("MAP:"); lcd.print(mapBar, 2);
+    lcd.setCursor(9, 1); lcd.print(Tinj_latched, 2); lcd.print("ms");
+  } 
+  else if (estadoAtual == MENU_PRINCIPAL) {
+    if (m - lastBtnPress > 200) {
+      if (btn == 2) { menuCursor = (menuCursor - 1 + totalMenus) % totalMenus; lcd.clear(); lastBtnPress = m; }
+      if (btn == 3) { menuCursor = (menuCursor + 1) % totalMenus; lcd.clear(); lastBtnPress = m; }
+      if (btn == 5) { estadoAtual = (MenuState)(menuCursor + 1); lcd.clear(); lastBtnPress = m; }
+    }
+    lcd.setCursor(0,0); lcd.print("> "); lcd.print(nomesMenus[menuCursor]);
+  }
+  // (Adicione os outros submenus conforme necessário seguindo o padrão original)
 }
