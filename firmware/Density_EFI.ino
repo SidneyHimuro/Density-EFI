@@ -150,7 +150,7 @@ void loop() {
   }
 
   // 4. Execução da Injeção (Timer 4 disparado aqui)
-  runInjector(rpm, tpsPercent);
+  runInjector(rpm, mapBar, tpsPercent);
 
   // 5. Telemetria Serial
   static unsigned long tSer = 0;
