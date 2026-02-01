@@ -6,53 +6,47 @@
 
 ## 🇧🇷 Português
 
-O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto para a plataforma **Arduino Mega 2560**. Esta versão foca em interface física direta, permitindo ajustes em tempo real sem a necessidade de um PC.
+O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto para a plataforma **Arduino Mega 2560**. Esta versão utiliza uma arquitetura modular para garantir precisão em tempo real e estabilidade no controle do motor.
 
 ### 🚀 Funcionalidades Atuais
-- ⛽ **Injeção de Combustível:** Controle via hardware (**Timer 3**) com precisão de microssegundos.
-- ⚡ **Sincronismo:** Decodificação de roda fônica **60-2** via interrupção externa (Pino 21).
-- 📊 **Mapa 16x16 Editável:** Tabela de injeção completa com interpolação 2D (RPM x MAP).
-- 💾 **Persistência EEPROM:** Salva e recupera mapas de injeção automaticamente ao ligar.
-- 🖥️ **Menu Carrossel (LCD 16x2):** - **Navegação:** UP/DOWN para trocar de menu, SELECT para entrar, LEFT para voltar.
-  - **Aceleração de Botão:** Ao manter pressionado UP/DOWN no mapa, a velocidade de incremento aumenta.
-  - **Monitoramento:** Tela dedicada para RPM, TPS, MAP e Tempo de Injeção (Tinj).
-  - **Editor de Mapa:** Ajuste fino de célula a célula com precisão de 0.01ms.
+- ⛽ **Injeção de Combustível:** Controle via hardware com precisão de microssegundos, operando em modo *Full Group* ou *Semi-Sequencial*.
+- ⚡ **Sincronismo Avançado:** Decodificação de sinal de rotação com rastreamento de ângulo do virabrequim (0° a 720°).
+- 📊 **Mapa 16x16 Interativo:** Tabela de injeção completa editável diretamente pelo LCD.
+- 💾 **Persistência EEPROM:** Armazenamento automático de mapas e calibrações de sensores.
+- 🖥️ **Interface HMI:** Menus dinâmicos para monitoramento (RPM, MAP, TPS, Tinj) e ajuste fino sem necessidade de PC.
 
-### 📌 Pinagem de Referência (Arduino Mega 2560)
-| Função | Pino Arduino | Observação |
-| :--- | :--- | :--- |
-| 🔄 **Sinal de Rotação** | D21 (INT0) | Roda Fônica 60-2 |
-| 🏭 **Sensor MAP** | A4 | Analog In (0 a -1.0 bar) |
-| 🏎️ **Sensor TPS** | A3 | Analog In (0% a 100%) |
-| 💨 **Saída Injetor** | D22 | Digital Out (Timer 3) |
-| 🔘 **Botões Shield** | A0 | Keypad Shield (Resistor Ladder) |
+### 📂 Estrutura Modular
+- `Crank.cpp/h`: Gerenciamento de interrupções de rotação e cálculo de ângulo.
+- `Injector.cpp/h`: Escalonador de injeção baseado em posição angular e tempo.
+- `Density_EFI.ino`: Orquestrador da interface de usuário e integração de módulos.
 
 ---
 
 ## 🇺🇸 English
 
-**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. This version focuses on a direct hardware interface, allowing real-time tuning without a PC.
+**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. This version utilizes a modular architecture to ensure real-time precision and stable engine control.
 
 ### 🚀 Current Features
-- ⛽ **Fuel Injection:** Hardware-controlled pulse width (**Timer 3**) with microsecond precision.
-- ⚡ **Synchronization:** **60-2** trigger wheel decoding via external interrupt (Pin 21).
-- 📊 **Editable 16x16 Map:** Full fuel table with 2D interpolation (RPM vs MAP).
-- 💾 **EEPROM Persistence:** Automatically saves and restores maps on startup.
-- 🖥️ **Carousel Menu (16x2 LCD):** - **Navigation:** UP/DOWN to switch menus, SELECT to enter, LEFT to exit.
-  - **Button Acceleration:** Holding UP/DOWN in map mode increases increment speed.
-  - **Monitoring:** Dedicated screen for RPM, TPS, MAP, and Injection Time (Tinj).
-  - **Map Editor:** Fine-tuning cell-by-cell with 0.01ms precision.
+- ⛽ **Fuel Injection:** Hardware-level control with microsecond precision, supporting *Full Group* or *Semi-Sequential* modes.
+- ⚡ **Advanced Synchronization:** Rotation signal decoding with crank angle tracking (0° to 720°).
+- 📊 **Interactive 16x16 Map:** Full fuel table editable directly via the LCD interface.
+- 💾 **EEPROM Persistence:** Automatic storage of maps and sensor calibrations.
+- 🖥️ **HMI Interface:** Dynamic menus for real-time monitoring (RPM, MAP, TPS, Tinj) and fine-tuning without a PC.
 
 
 
-### 📌 Pinout Reference (Arduino Mega 2560)
-| Function | Arduino Pin | Note |
+### 📌 Pinagem de Referência / Pinout (Mega 2560)
+
+| Função / Function | Pino / Pin | Nota / Note |
 | :--- | :--- | :--- |
-| 🔄 **RPM Signal** | D21 (INT0) | 60-2 Trigger Wheel |
-| 🏭 **MAP Sensor** | A4 | Analog In (0 to -1.0 bar) |
-| 🏎️ **TPS Sensor** | A3 | Analog In (0% to 100%) |
-| 💨 **Injector Output** | D22 | Digital Out (Timer 3) |
-| 🔘 **Shield Buttons** | A0 | Keypad Shield (Resistor Ladder) |
+| **RPM Signal** | D2 (ou D21) | Entrada de Interrupção |
+| **Injector Out** | D10 (ou D22) | Saída p/ Driver MOSFET |
+| **MAP Sensor** | A4 | Entrada Analógica |
+| **TPS Sensor** | A3 | Entrada Analógica |
+| **LCD Pins** | 8, 9, 4, 5, 6, 7 | Interface 4-bits |
+| **Buttons** | A0 | Escada de Resistores (Keypad) |
+
+
 
 ---
 
