@@ -4,7 +4,7 @@ const byte rpmPin = 21;
 byte pulsesPerRev = 60;
 volatile unsigned long lastPulseMicros = 0, periodMicros = 0, avgPeriod = 0;
 volatile byte toothCount = 0;
-volatile bool syncOK = false;
+bool syncOK = false;
 volatile unsigned long lastPmsMicros = 0;
 unsigned int rpm = 0;
 

@@ -7,9 +7,12 @@ extern const byte rpmPin;
 extern byte pulsesPerRev;
 extern volatile unsigned long lastPulseMicros, periodMicros, avgPeriod;
 extern volatile byte toothCount;
-extern volatile bool syncOK;
 extern volatile unsigned long lastPmsMicros;
-extern unsigned int rpm;
+
+
+// Variáveis compartilhadas
+extern unsigned int rpm;    // ADICIONAR 'volatile'
+extern bool syncOK;         // ADICIONAR 'volatile'
 
 void setupCrank();
 void rpmISR();
