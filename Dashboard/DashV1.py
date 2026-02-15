@@ -8,7 +8,15 @@ import threading
 import time
 
 # ================= CONFIG GLOBAL =================
-serial_data = {"RPM": 0, "MAP": 0.0, "TPS": 0.0, "TINJ": 0.0}
+serial_data = {
+    "RPM": 0, 
+    "MAP": 0.0, 
+    "TPS": 0.0, 
+    "TINJ": 0.0,
+    "IGN": 0.0,
+    "DWELL": 0.0,
+    "BAT": 0.0
+}
 last_data_time = 0 
 connection_active = False
 ser_instance = None
@@ -23,15 +31,19 @@ def serial_reader():
                     line = ser_instance.readline().decode(errors="ignore").strip()
                     if line:
                         parts = line.split(",")
-                        if len(parts) == 4:
+                        if len(parts) == 7:  # Agora esperamos 7 valores
                             try:
                                 with data_lock:
-                                    serial_data["RPM"]  = float(parts[0])
-                                    serial_data["MAP"]  = float(parts[1])
-                                    serial_data["TPS"]  = float(parts[2])
-                                    serial_data["TINJ"] = float(parts[3])
+                                    serial_data["RPM"]   = float(parts[0])
+                                    serial_data["MAP"]   = float(parts[1])
+                                    serial_data["TPS"]   = float(parts[2])
+                                    serial_data["TINJ"]  = float(parts[3])
+                                    serial_data["IGN"]   = float(parts[4])
+                                    serial_data["DWELL"] = float(parts[5])
+                                    serial_data["BAT"]   = float(parts[6])
                                 last_data_time = time.time()
-                            except: pass
+                            except:
+                                pass
             except:
                 connection_active = False
         time.sleep(0.01)
@@ -52,21 +64,34 @@ def create_rpm_bar(value, shift_limit, n_intervals):
                    tickvals=[1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000],
                    ticktext=["1", "2", "3", "4", "5", "6", "7", "8"],
                    tickfont=dict(color="white", size=24, family="Arial Black")),
-        yaxis=dict(visible=False), plot_bgcolor="rgba(40, 40, 40, 0.5)",
-        paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=20, r=20, t=10, b=30), height=100
+        yaxis=dict(visible=False), 
+        plot_bgcolor="rgba(40, 40, 40, 0.5)",
+        paper_bgcolor="rgba(0,0,0,0)", 
+        margin=dict(l=20, r=20, t=10, b=30), 
+        height=100
     )
     return fig
 
-def render_card(label, value, unit, border_color):
+def render_card(label, value, unit, border_color, large=True):
+    if large:
+        value_style = {"color": "white", "fontSize": "85px", "fontWeight": "bold"}
+    else:
+        value_style = {"color": "white", "fontSize": "45px", "fontWeight": "bold"}
+    
     return html.Div(style={
-        "backgroundColor": "rgba(20, 20, 20, 0.9)", "border": f"3px solid {border_color}",
-        "borderRadius": "15px", "padding": "20px", "margin": "10px", "flex": "1",
-        "textAlign": "center", "minWidth": "280px"
+        "backgroundColor": "rgba(20, 20, 20, 0.9)", 
+        "border": f"3px solid {border_color}",
+        "borderRadius": "15px", 
+        "padding": "20px", 
+        "margin": "10px", 
+        "flex": "1",
+        "textAlign": "center", 
+        "minWidth": "200px"
     }, children=[
-        html.Div(label.upper(), style={"color": "#AAA", "fontSize": "22px", "fontWeight": "900"}),
+        html.Div(label.upper(), style={"color": "#AAA", "fontSize": "18px", "fontWeight": "900"}),
         html.Div([
-            html.Span(value, style={"color": "white", "fontSize": "85px", "fontWeight": "bold"}),
-            html.Span(f" {unit}", style={"color": border_color, "fontSize": "26px", "fontWeight": "bold", "marginLeft": "10px"})
+            html.Span(value, style=value_style),
+            html.Span(f" {unit}", style={"color": border_color, "fontSize": "20px", "fontWeight": "bold", "marginLeft": "5px"})
         ])
     ])
 
@@ -76,12 +101,13 @@ app = dash.Dash(__name__)
 
 app.layout = html.Div(style={"backgroundColor": "#000", "minHeight": "100vh", "padding": "20px 40px"}, children=[
     
-    html.H1("Dash - Density EFI v1.0", style={"textAlign": "center", "color": "white", "fontWeight": "bold", "marginBottom": "30px"}),
+    html.H1("Dash - Density EFI v2.0", style={"textAlign": "center", "color": "white", "fontWeight": "bold", "marginBottom": "30px"}),
 
     # Toolbar
     html.Div(style={
         "display": "flex", "justifyContent": "center", "alignItems": "center", 
-        "gap": "30px", "marginBottom": "40px", "padding": "15px", "backgroundColor": "#111", "borderRadius": "12px"
+        "gap": "30px", "marginBottom": "40px", "padding": "15px", 
+        "backgroundColor": "#111", "borderRadius": "12px"
     }, children=[
         dcc.Dropdown(
             id='port-dropdown',
@@ -91,10 +117,11 @@ app.layout = html.Div(style={"backgroundColor": "#000", "minHeight": "100vh", "p
         ),
 
         html.Button("CONECTAR", id="btn-connect", n_clicks=0, style={
-            "fontSize": "16px", "fontWeight": "bold", "padding": "10px 20px", "borderRadius": "8px", "border": "none"
+            "fontSize": "16px", "fontWeight": "bold", "padding": "10px 20px", 
+            "borderRadius": "8px", "border": "none"
         }),
 
-        # LED e Status corrigidos
+        # LED e Status
         html.Div(style={"display": "flex", "alignItems": "center", "gap": "12px", "minWidth": "150px"}, children=[
             html.Div(id="led-indicator", style={
                 "width": "15px", "height": "15px", "borderRadius": "50%", "transition": "all 0.3s"
@@ -105,17 +132,27 @@ app.layout = html.Div(style={"backgroundColor": "#000", "minHeight": "100vh", "p
         html.Div([
             html.Label("SHIFT: ", style={"fontWeight": "bold", "color": "#e74c3c"}),
             dcc.Input(id="shift-input", type="number", value=7200, style={
-                "backgroundColor": "#222", "color": "white", "border": "1px solid #444", "padding": "5px", "width": "80px"
+                "backgroundColor": "#222", "color": "white", "border": "1px solid #444", 
+                "padding": "5px", "width": "80px"
             })
         ])
     ]),
 
     dcc.Graph(id="rpm-bar", config={'displayModeBar': False}),
 
+    # Primeira linha de cards (4 cards)
     html.Div(style={"display": "flex", "flexWrap": "wrap", "justifyContent": "center", "gap": "20px", "marginTop": "30px"}, children=[
         html.Div(id="map-container"),
         html.Div(id="tps-container"),
-        html.Div(id="tinj-container")
+        html.Div(id="tinj-container"),
+        html.Div(id="ign-container")
+    ]),
+    
+    # Segunda linha de cards (3 cards)
+    html.Div(style={"display": "flex", "flexWrap": "wrap", "justifyContent": "center", "gap": "20px", "marginTop": "20px"}, children=[
+        html.Div(id="dwell-container"),
+        html.Div(id="bat-container"),
+        html.Div(id="rpm-container")  # Card extra mostrando RPM em formato grande
     ]),
 
     dcc.Interval(id="update-timer", interval=100),
@@ -136,17 +173,26 @@ def handle_btn(n, port):
             try:
                 ser_instance = serial.Serial(port, 115200, timeout=0.1)
                 connection_active = True
-                return "DESCONECTAR", {"backgroundColor": "#e74c3c", "color": "white"}
+                return "DESCONECTAR", {"backgroundColor": "#e74c3c", "color": "white", "fontWeight": "bold"}
             except:
-                return "ERRO PORTA", {"backgroundColor": "#555", "color": "white"}
+                return "ERRO PORTA", {"backgroundColor": "#555", "color": "white", "fontWeight": "bold"}
     connection_active = False
-    if ser_instance: ser_instance.close(); ser_instance = None
-    return "CONECTAR", {"backgroundColor": "#3498db", "color": "white"}
+    if ser_instance: 
+        ser_instance.close()
+        ser_instance = None
+    return "CONECTAR", {"backgroundColor": "#3498db", "color": "white", "fontWeight": "bold"}
 
 @app.callback(
-    [Output("led-indicator", "style"), Output("status-text", "children"),
-     Output("rpm-bar", "figure"), Output("map-container", "children"),
-     Output("tps-container", "children"), Output("tinj-container", "children")],
+    [Output("led-indicator", "style"), 
+     Output("status-text", "children"),
+     Output("rpm-bar", "figure"), 
+     Output("map-container", "children"),
+     Output("tps-container", "children"), 
+     Output("tinj-container", "children"),
+     Output("ign-container", "children"),
+     Output("dwell-container", "children"),
+     Output("bat-container", "children"),
+     Output("rpm-container", "children")],
     [Input("update-timer", "n_intervals")],
     [State("shift-input", "value")]
 )
@@ -166,14 +212,25 @@ def sync_ui(n, shift):
         txt = "SEM DADOS"
 
     with data_lock:
-        rpm, m, t, i = serial_data["RPM"], serial_data["MAP"], serial_data["TPS"], serial_data["TINJ"]
+        rpm     = serial_data["RPM"]
+        m       = serial_data["MAP"]
+        t       = serial_data["TPS"]
+        i       = serial_data["TINJ"]
+        ign     = serial_data["IGN"]
+        dwell   = serial_data["DWELL"]
+        bat     = serial_data["BAT"]
 
     return (
-        led_s, txt,
+        led_s, 
+        txt,
         create_rpm_bar(rpm, shift, n),
         render_card("MAP", f"{m:.2f}", "bar", "#3498db"),
         render_card("TPS", f"{int(t)}", "%", "#f39c12"),
-        render_card("Tinj", f"{i:.2f}", "ms", "#9b59b6")
+        render_card("Tinj", f"{i:.2f}", "ms", "#9b59b6"),
+        render_card("IGN", f"{ign:.1f}", "°", "#e74c3c"),
+        render_card("DWELL", f"{dwell:.1f}", "ms", "#1abc9c"),
+        render_card("BAT", f"{bat:.1f}", "V", "#f1c40f"),
+        render_card("RPM", f"{int(rpm)}", "", "#3498db", large=True)
     )
 
 @app.callback(Output('port-dropdown', 'options'), Input('port-refresh', 'n_intervals'))
@@ -181,4 +238,4 @@ def refresh_ports(n):
     return [{'label': p.device, 'value': p.device} for p in serial.tools.list_ports.comports()]
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(debug=False, host='127.0.0.1', port=8050)
