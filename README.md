@@ -1,4 +1,4 @@
-# 🏎️ Density EFI - Engine Management System (v1.0)
+# 🏎️ Density EFI - Engine Management System (v1.1)
 
 [Read in English](#english) | [Ler em Português](#português)
 
@@ -16,9 +16,13 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 - 🖥️ **Interface HMI:** Menus dinâmicos para monitoramento (RPM, MAP, TPS, Tinj) e ajuste fino sem necessidade de PC.
 
 ### 📂 Estrutura Modular
-- `Crank.cpp/h`: Gerenciamento de interrupções de rotação e cálculo de ângulo.
-- `Injector.cpp/h`: Escalonador de injeção baseado em posição angular e tempo.
-- `Density_EFI.ino`: Orquestrador da interface de usuário e integração de módulos.
+- `Crank.cpp/h`: Gerenciamento de interrupções de rotação e cálculo de ângulo do virabrequim.
+- `IgnitionControl.cpp/h`: Controle do avanço de ignição e tempo de carga da bobina (Dwell).
+- `Injector.cpp/h`: Escalonador de injeção baseado em posição angular e tempo de abertura.
+- `Density_EFI.ino`: Orquestrador principal, gerenciamento da interface HMI e integração dos módulos.
+
+### 🗺️ Estrutura de Menus
+![Estrutura de Menus](images/Estrutura_de_menus.png)
 
 ---
 
@@ -33,7 +37,16 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 - 💾 **EEPROM Persistence:** Automatic storage of maps and sensor calibrations.
 - 🖥️ **HMI Interface:** Dynamic menus for real-time monitoring (RPM, MAP, TPS, Tinj) and fine-tuning without a PC.
 
+### 📂 Modular Structure
+- `Crank.cpp/h`: Rotation interrupt management and crank angle calculation.
+- `IgnitionControl.cpp/h`: Ignition timing advance and coil dwell control.
+- `Injector.cpp/h`: Injection scheduler based on angular position and pulse width.
+- `Density_EFI.ino`: Main orchestrator, HMI interface management, and module integration.
 
+### 🗺️ Menu Structure
+![Menu Structure](images/Menu_structure.png)
+
+---
 
 ### 📌 Pinagem de Referência / Pinout (Mega 2560)
 
@@ -45,8 +58,6 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 | **TPS Sensor** | A3 | Entrada Analógica |
 | **LCD Pins** | 8, 9, 4, 5, 6, 7 | Interface 4-bits |
 | **Buttons** | A0 | Escada de Resistores (Keypad) |
-
-
 
 ---
 
