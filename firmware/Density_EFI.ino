@@ -31,6 +31,15 @@ int tpsMinADC = 100, tpsMaxADC = 900;
 int mapAtmosADC = 940; 
 float mapBar = 0.0, tpsPercent = 0.0;
 
+// ================= SENSOR DE BATERIA =================
+const byte batPin = A5;  // Pino para leitura da bateria (com divisor de tensão)
+float tensaoBateria = 0.0;
+
+// Constantes para o divisor de tensão
+const float R1 = 10000.0;  // Resistor 1 (10kΩ)
+const float R2 = 3300.0;   // Resistor 2 (3.3kΩ)
+const float fatorDivisor = (R1 + R2) / R2;  // Fator de multiplicação
+
 // ================= IGNIÇÃO OFFSET =================
 float ignOffsetDegrees = 0.0;
 byte ignFixedAngle = 0;
@@ -81,6 +90,13 @@ void carregarIgnicaoConfig() {
   if (ignFixedAngle != 0 && ignFixedAngle != 10 && ignFixedAngle != 20) {
     ignFixedAngle = 0;
   }
+}
+
+// ================= FUNÇÃO PARA LER BATERIA =================
+float lerTensaoBateria() {
+  int batADC = analogRead(batPin);
+  float tensao = (batADC * 5.0 / 1024.0) * fatorDivisor;
+  return tensao;
 }
 
 // ================= FUNÇÕES DWELL =================
@@ -264,16 +280,29 @@ void loop() {
   // 4. Execução da Injeção
   runInjector(rpm, mapBar, tpsPercent);
 
-  // 5. Telemetria Serial
-  static unsigned long tSer = 0;
-  if (millis() - tSer > 100) {
-    Serial.print(rpm); Serial.print(",");
-    Serial.print(mapBar); Serial.print(",");
-    Serial.print(tpsPercent, 1); Serial.print(",");
-    Serial.print(Tinj_latched + AE_TPS); Serial.print(",");
-    Serial.println(getIgnitionAdvance(), 1);
-    tSer = millis();
-  }
+// 5. Telemetria Serial - 7 valores para o Dash
+static unsigned long tSer = 0;
+if (millis() - tSer > 100) {
+  // Ler tensão da bateria
+  tensaoBateria = lerTensaoBateria();
+  
+  // Formato: RPM,MAP,TPS,TINJ,IGN,DWELL,BAT
+  Serial.print(rpm);
+  Serial.print(",");
+  Serial.print(mapBar, 3);
+  Serial.print(",");
+  Serial.print(tpsPercent, 1);
+  Serial.print(",");
+  Serial.print(Tinj_latched + AE_TPS, 2);
+  Serial.print(",");
+  Serial.print(getIgnitionAdvance(), 1);
+  Serial.print(",");
+  Serial.print(getIgnitionDwell(), 1);
+  Serial.print(",");
+  Serial.println(tensaoBateria, 1);
+  
+  tSer = millis();
+}
   
   // ================= MENU LCD =================
   static unsigned long tLCD = 0;
