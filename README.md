@@ -27,9 +27,6 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 ![Estrutura de Menus](images/Estrutura_de_menus.png)
 
 ---
-
-![Menu Structure](images/Menu_structure.png)
-
 ---
 
 ## 🇺🇸 English
@@ -55,9 +52,6 @@ O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de c�
 ![Menu Structure](images/Menu_structure.png)
 
 ---
-
-![Menu Structure](images/Menu_structure.png)
-
 ---
 
 ### 📌 Pinagem de Referência / Pinout (Mega 2560)
