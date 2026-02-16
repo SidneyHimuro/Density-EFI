@@ -54,8 +54,8 @@ String nomesSub[] = {"CALIBRAR TPS     ", "CALIBRAR MAP     ", "SINAL ROTACAO   
 
 byte etapaFuncoes = 0;
 int subMenuFuncoesCursor = 0;
-const int totalSubFuncoes = 2;
-String nomesSubFuncoes[] = {"ACEL. RAPIDA    ", "DWELL BOBINA     "};
+const int totalSubFuncoes = 3;
+String nomesSubFuncoes[] = {"ACEL. RAPIDA    ", "DWELL BOBINA     ", "VENTILADOR       "};
 
 // ================= EIXOS E TABELAS =================
 const int rpmAxis[16] = {500, 800, 1200, 1600, 2000, 2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7000, 7500};
@@ -90,6 +90,39 @@ float lerTensaoBateria() {
     int batADC = analogRead(batPin);
     return (batADC * 5.0 / 1024.0) * fatorDivisor;
 }
+
+// ================= SENSOR DE TEMPERATURA ECT =================
+const byte ectPin = A1;  // Pino para sensor de temperatura do motor
+float temperaturaECT = 0.0;  // Temperatura em °C
+
+// Tabela genérica para sensor NTC (ex: 10kΩ @ 25°C)
+// Valores aproximados para referência (ajuste conforme seu sensor)
+const float tempTable[11][2] = {
+  { 0, 32500 },   // 0°C -> 32.5kΩ
+  { 10, 18000 },  // 10°C -> 18kΩ
+  { 20, 11000 },  // 20°C -> 11kΩ
+  { 30, 7000 },   // 30°C -> 7kΩ
+  { 40, 5000 },   // 40°C -> 5kΩ
+  { 50, 3500 },   // 50°C -> 3.5kΩ
+  { 60, 2500 },   // 60°C -> 2.5kΩ
+  { 70, 1800 },   // 70°C -> 1.8kΩ
+  { 80, 1300 },   // 80°C -> 1.3kΩ
+  { 90, 1000 },   // 90°C -> 1kΩ
+  { 100, 800 }    // 100°C -> 800Ω
+};
+
+// ================= CONTROLE DO ELETROVENTILADOR =================
+const byte fanPin = 47;  // Pino para acionamento do eletroventilador
+bool fanAuto = true;     // Modo automático (true) ou manual (false)
+bool fanManualState = false;  // Estado manual do ventilador
+int fanTempOn = 95;      // Temperatura para ligar (°C)
+int fanTempOff = 90;     // Temperatura para desligar (°C)
+int fanHysteresis = 5;   // Histérese padrão
+
+// Endereços EEPROM para o ventilador (use endereços livres)
+const int addrFanAuto = 1060;
+const int addrFanTempOn = 1064;
+const int addrFanTempOff = 1068;
 
 // ================= FUNÇÕES DWELL =================
 void salvarDwellConfig() {
@@ -229,6 +262,89 @@ void carregarSyncTooth() {
     denteSincro = (val >= 0 && val < 60) ? val : 0;
 }
 
+// ================= FUNÇÃO PARA LER TEMPERATURA ECT =================
+float lerTemperaturaECT() {
+  int ectADC = analogRead(ectPin);
+  float tensao = (ectADC * 5.0) / 1024.0;
+  
+  // Para sensor NTC com resistor pull-up de 10kΩ
+  // Resistência do sensor = (tensão / (5 - tensão)) * 10kΩ
+  if (tensao >= 4.99) return -40;  // Sensor aberto ou desconectado
+  if (tensao <= 0.01) return 140;  // Curto ou temperatura muito alta
+  
+  float resistencia = (tensao / (5.0 - tensao)) * 10000.0;
+  
+  // Interpolação na tabela
+  if (resistencia >= tempTable[0][1]) return tempTable[0][0];
+  if (resistencia <= tempTable[10][1]) return tempTable[10][0];
+  
+  for (int i = 0; i < 10; i++) {
+    if (resistencia <= tempTable[i][1] && resistencia >= tempTable[i+1][1]) {
+      float t1 = tempTable[i][0];
+      float t2 = tempTable[i+1][0];
+      float r1 = tempTable[i][1];
+      float r2 = tempTable[i+1][1];
+      
+      return t1 + (t2 - t1) * (r1 - resistencia) / (r1 - r2);
+    }
+  }
+  
+  return 85;  // Valor padrão se não encontrar
+}
+
+// ================= FUNÇÕES DO ELETROVENTILADOR =================
+void setupFan() {
+  pinMode(fanPin, OUTPUT);
+  digitalWrite(fanPin, LOW);
+}
+
+void updateFan(float temperatura) {
+  if (fanAuto) {
+    // Modo automático baseado na temperatura
+    if (temperatura >= fanTempOn && !digitalRead(fanPin)) {
+      digitalWrite(fanPin, HIGH);
+      Serial.println("Ventilador LIGADO (automático)");
+    } else if (temperatura <= fanTempOff && digitalRead(fanPin)) {
+      digitalWrite(fanPin, LOW);
+      Serial.println("Ventilador DESLIGADO (automático)");
+    }
+  } else {
+    // Modo manual
+    digitalWrite(fanPin, fanManualState ? HIGH : LOW);
+  }
+}
+
+void setFanAuto(bool autoMode) {
+  fanAuto = autoMode;
+  if (!fanAuto) {
+    fanManualState = digitalRead(fanPin); // Sincroniza estado manual
+  }
+}
+
+void setFanManual(bool state) {
+  fanManualState = state;
+  if (!fanAuto) {
+    digitalWrite(fanPin, state ? HIGH : LOW);
+  }
+}
+
+void salvarFanConfig() {
+  EEPROM.put(addrFanAuto, fanAuto);
+  EEPROM.put(addrFanTempOn, fanTempOn);
+  EEPROM.put(addrFanTempOff, fanTempOff);
+}
+
+void carregarFanConfig() {
+  EEPROM.get(addrFanAuto, fanAuto);
+  EEPROM.get(addrFanTempOn, fanTempOn);
+  EEPROM.get(addrFanTempOff, fanTempOff);
+  
+  // Validação
+  if (fanTempOn < 50 || fanTempOn > 120) fanTempOn = 95;
+  if (fanTempOff < 45 || fanTempOff > 115) fanTempOff = 90;
+  if (fanTempOff >= fanTempOn) fanTempOff = fanTempOn - fanHysteresis;
+}
+
 // ================= SETUP =================
 void setup() {
     lcd.begin(16, 2);
@@ -239,10 +355,12 @@ void setup() {
     carregarIgnicaoConfig();
     carregarDwellConfig();
     carregarSyncTooth();
+    carregarFanConfig();
     
     setupCrank();
     setupInjector();
     setupIgnition();
+    setupFan();
     configureIgnitionMode();
 
     lcd.print("HimuroPerform.");
@@ -257,6 +375,7 @@ void loop() {
     // 1. Leituras de Sensores
     int mapADC = analogRead(mapPin);
     int tpsADC = analogRead(tpsPin);
+    temperaturaECT = lerTemperaturaECT();
 
     float kpaFaltante = (float)(mapAtmosADC - mapADC) / 10.24;
     mapBar = -(kpaFaltante / 100.0);
@@ -267,6 +386,7 @@ void loop() {
     // 2. Atualização de Estados
     updateCrankRPM();
     updateInjectorAE(tpsPercent, rpm);
+    updateFan(temperaturaECT);  // <-- ADICIONAR
 
     // 3. Cálculo dos parâmetros de ignição e injeção
     if (rpm > 40 && syncOK) {
@@ -337,105 +457,298 @@ void loop() {
         }
 
         else if (estadoAtual == MONITORAMENTO) {
-            if (btn == 5 && (m - lastBtnPress > 200)) {
-                estadoAtual = MENU_PRINCIPAL;
-                lcd.clear();
-                lastBtnPress = m;
-            }
+    if (btn == 5 && (m - lastBtnPress > 200)) {
+        estadoAtual = MENU_PRINCIPAL;
+        lcd.clear();
+        lastBtnPress = m;
+    }
 
-            static byte telaMonitor = 0;
+    static byte telaMonitor = 0;
+    const byte totalTelas = 4;  // Agora são 4 telas
 
-            if (btn == 1 && (m - lastBtnPress > 200)) {
-                telaMonitor = (telaMonitor + 1) % 3;
-                lcd.clear();
-                lastBtnPress = m;
-            }
+    if (btn == 1 && (m - lastBtnPress > 200)) {
+        telaMonitor = (telaMonitor + 1) % totalTelas;
+        lcd.clear();
+        lastBtnPress = m;
+    }
 
-            if (btn == 4 && (m - lastBtnPress > 200)) {
-                telaMonitor = (telaMonitor - 1 + 3) % 3;
-                lcd.clear();
-                lastBtnPress = m;
-            }
+    if (btn == 4 && (m - lastBtnPress > 200)) {
+        telaMonitor = (telaMonitor - 1 + totalTelas) % totalTelas;
+        lcd.clear();
+        lastBtnPress = m;
+    }
 
-            if (telaMonitor == 0) {
-                lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("      ");
-                lcd.setCursor(8, 0); lcd.print("I:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223);
-                lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2); lcd.print("       ");
-                lcd.setCursor(8, 1); lcd.print("F:"); lcd.print(Tinj_latched + AE_TPS, 2); lcd.print("ms     ");
-            } else if (telaMonitor == 1) {
-                lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("       ");
-                lcd.setCursor(8, 0); lcd.print("D:"); lcd.print(getIgnitionDwell(), 1); lcd.print("ms     ");
-                lcd.setCursor(0, 1); lcd.print("IG:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223); lcd.print("       ");
-                lcd.setCursor(8, 1); lcd.print("PT:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223); lcd.print("      ");
-            } else if (telaMonitor == 2) {
-                int batADC = analogRead(A5);
-                float tensaoBateria = (batADC * 5.0 / 1024.0) * ((10.0 + 3.3) / 3.3);
-                lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("       ");
-                lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); lcd.print("%         ");
-                lcd.setCursor(0, 1); lcd.print("V:"); lcd.print(tensaoBateria, 1); lcd.print("V     ");
-                lcd.setCursor(8, 1); lcd.print("F:"); lcd.print(Tinj_latched + AE_TPS, 2); lcd.print("ms      ");
-            }
+    // TELA 0 - RPM, IGN, MAP, INJ
+    if (telaMonitor == 0) {
+        lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("      ");
+        lcd.setCursor(8, 0); lcd.print("I:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223);
+        lcd.setCursor(0, 1); lcd.print("M:"); lcd.print(mapBar, 2); lcd.print("       ");
+        lcd.setCursor(8, 1); lcd.print("F:"); lcd.print(Tinj_latched + AE_TPS, 2); lcd.print("ms     ");
+    }
+    // TELA 1 - Dwell e Ponto de ignição
+    else if (telaMonitor == 1) {
+        lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("       ");
+        lcd.setCursor(8, 0); lcd.print("D:"); lcd.print(getIgnitionDwell(), 1); lcd.print("ms     ");
+        lcd.setCursor(0, 1); lcd.print("IG:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223); lcd.print("       ");
+        lcd.setCursor(8, 1); lcd.print("PT:"); lcd.print(getIgnitionAdvance(), 1); lcd.print((char)223); lcd.print("      ");
+    }
+    // TELA 2 - Bateria e TPS
+    else if (telaMonitor == 2) {
+        int batADC = analogRead(A5);
+        float tensaoBateria = (batADC * 5.0 / 1024.0) * ((10.0 + 3.3) / 3.3);
+        lcd.setCursor(0, 0); lcd.print("R:"); lcd.print(rpm); lcd.print("       ");
+        lcd.setCursor(8, 0); lcd.print("T:"); lcd.print((int)tpsPercent); lcd.print("%         ");
+        lcd.setCursor(0, 1); lcd.print("V:"); lcd.print(tensaoBateria, 1); lcd.print("V     ");
+        lcd.setCursor(8, 1); lcd.print("F:"); lcd.print(Tinj_latched + AE_TPS, 2); lcd.print("ms      ");
+    }
+    // TELA 3 - Temperatura e status do ventilador
+    else if (telaMonitor == 3) {
+        lcd.setCursor(0, 0); lcd.print("ECT:"); lcd.print((int)temperaturaECT); lcd.print((char)223); lcd.print("C  ");
+        lcd.setCursor(8, 0); lcd.print("FAN:");
+        if (digitalRead(fanPin)) {
+            lcd.print("ON ");
+        } else {
+            lcd.print("OFF");
+        }
+        lcd.setCursor(0, 1); lcd.print("MODO:");
+        lcd.print(fanAuto ? "AUTO " : "MANUAL");
+        lcd.setCursor(8, 1); lcd.print("SET:");
+        lcd.print(fanTempOn); lcd.print((char)223); lcd.print("C");
+    }
+}
+
+else if (estadoAtual == FUNCOES) {
+    if (btn == 4 && (m - lastBtnPress > 200)) {
+        if (etapaFuncoes > 0) {
+            etapaFuncoes = 0;
+            lcd.clear();
+        } else {
+            estadoAtual = MENU_PRINCIPAL;
+            lcd.clear();
+        }
+        lastBtnPress = m;
+    }
+
+    if (etapaFuncoes == 0) {
+        // Navegação UP/DOWN para 3 opções
+        if (btn == 2 && (m - lastBtnPress > 200)) { // UP
+            subMenuFuncoesCursor = (subMenuFuncoesCursor > 0) ? subMenuFuncoesCursor - 1 : 0;
+            lastBtnPress = m;
+        }
+        if (btn == 3 && (m - lastBtnPress > 200)) { // DOWN
+            subMenuFuncoesCursor = (subMenuFuncoesCursor < 2) ? subMenuFuncoesCursor + 1 : 2;
+            lastBtnPress = m;
+        }
+        if (btn == 5 && (m - lastBtnPress > 200)) { // SELECT
+            if (subMenuFuncoesCursor == 0) etapaFuncoes = 1;      // ACEL. RAPIDA
+            else if (subMenuFuncoesCursor == 1) etapaFuncoes = 10; // DWELL
+            else if (subMenuFuncoesCursor == 2) etapaFuncoes = 11; // VENTILADOR
+            lcd.clear();
+            lastBtnPress = m;
         }
 
-        else if (estadoAtual == FUNCOES) {
-            if (btn == 4 && (m - lastBtnPress > 200)) {
-                if (etapaFuncoes > 0) {
-                    etapaFuncoes = 0;
-                    lcd.clear();
-                } else {
-                    estadoAtual = MENU_PRINCIPAL;
-                    lcd.clear();
-                }
-                lastBtnPress = m;
-            }
+        // Redesenha menu
+        lcd.setCursor(0, 0);
+        if (subMenuFuncoesCursor == 0) {
+            lcd.print("> ACEL. RAPIDA  ");
+        } else if (subMenuFuncoesCursor == 1) {
+            lcd.print("  ACEL. RAPIDA  ");
+        } else {
+            lcd.print("  ACEL. RAPIDA  ");
+        }
 
-            if (m - lastBtnPress > 200) {
-                if (etapaFuncoes == 0) {
-                    if (btn == 2) { subMenuFuncoesCursor = 0; lastBtnPress = m; }
-                    if (btn == 3) { subMenuFuncoesCursor = 1; lastBtnPress = m; }
-                    if (btn == 5) {
-                        etapaFuncoes = (subMenuFuncoesCursor == 0) ? 1 : 10;
+        lcd.setCursor(0, 1);
+        if (subMenuFuncoesCursor == 1) {
+            lcd.print("> DWELL BOBINA  ");
+        } else if (subMenuFuncoesCursor == 2) {
+            lcd.print("> VENTILADOR    ");
+        } else {
+            lcd.print("  DWELL BOBINA  ");
+        }
+    }
+    
+    else if (etapaFuncoes == 1) { // ACEL. RAPIDA - GANHO AE
+        if (btn == 2 && (m - lastBtnPress > 200)) { 
+            AE_TPS_max = constrain(AE_TPS_max + 0.1, 0.0, 5.0); 
+            lastBtnPress = m; 
+        }
+        if (btn == 3 && (m - lastBtnPress > 200)) { 
+            AE_TPS_max = constrain(AE_TPS_max - 0.1, 0.0, 5.0); 
+            lastBtnPress = m; 
+        }
+        if (btn == 5 && (m - lastBtnPress > 200)) { 
+            etapaFuncoes = 2; 
+            lcd.clear(); 
+            lastBtnPress = m; 
+        }
+
+        lcd.setCursor(0, 0); 
+        lcd.print("GANHO AE (ms)   ");
+        lcd.setCursor(0, 1); 
+        lcd.print("VALOR: "); 
+        lcd.print(AE_TPS_max, 1); 
+        lcd.print("   ");
+    }
+    
+    else if (etapaFuncoes == 2) { // ACEL. RAPIDA - DECAIMENTO
+        if (btn == 2 && (m - lastBtnPress > 200)) { 
+            AE_decay_ms = constrain(AE_decay_ms + 10, 50, 1000); 
+            lastBtnPress = m; 
+        }
+        if (btn == 3 && (m - lastBtnPress > 200)) { 
+            AE_decay_ms = constrain(AE_decay_ms - 10, 50, 1000); 
+            lastBtnPress = m; 
+        }
+        if (btn == 5 && (m - lastBtnPress > 200)) {
+            EEPROM.put(addrAEMax, AE_TPS_max);
+            EEPROM.put(addrAEDecay, AE_decay_ms);
+            lcd.clear(); 
+            lcd.print("AE SALVO!"); 
+            delay(1000);
+            etapaFuncoes = 0; 
+            subMenuFuncoesCursor = 0; 
+            lcd.clear(); 
+            lastBtnPress = m;
+        }
+
+        lcd.setCursor(0, 0); 
+        lcd.print("DECAIMENTO (ms) ");
+        lcd.setCursor(0, 1); 
+        lcd.print("VALOR: "); 
+        lcd.print((int)AE_decay_ms); 
+        lcd.print("   ");
+    }
+    
+    else if (etapaFuncoes == 10) { // DWELL BOBINA
+        if (btn == 2 && (m - lastBtnPress > 200)) { 
+            setIgnitionDwell(getIgnitionDwell() + 0.1); 
+            lastBtnPress = m; 
+        }
+        if (btn == 3 && (m - lastBtnPress > 200)) { 
+            setIgnitionDwell(getIgnitionDwell() - 0.1); 
+            lastBtnPress = m; 
+        }
+        if (btn == 5 && (m - lastBtnPress > 200)) {
+            salvarDwellConfig();
+            lcd.clear(); 
+            lcd.print("DWELL SALVO!"); 
+            delay(1000);
+            etapaFuncoes = 0; 
+            subMenuFuncoesCursor = 0; 
+            lcd.clear(); 
+            lastBtnPress = m;
+        }
+
+        lcd.setCursor(0, 0); 
+        lcd.print("DWELL BOBINA    ");
+        lcd.setCursor(0, 1); 
+        lcd.print("VALOR: "); 
+        lcd.print(getIgnitionDwell(), 1); 
+        lcd.print("ms   ");
+    }
+    
+    else if (etapaFuncoes == 11) { // VENTILADOR
+        static byte subEtapaFan = 0;
+        
+        if (m - lastBtnPress > 200) {
+            // Submenu do ventilador
+            if (subEtapaFan == 0) { // MODO
+                lcd.setCursor(0, 0); 
+                lcd.print("VENTILADOR      ");
+                lcd.setCursor(0, 1); 
+                lcd.print("MODO: "); 
+                lcd.print(fanAuto ? "AUTO " : "MANUAL");
+                
+                if (btn == 2 || btn == 3) {
+                    fanAuto = !fanAuto;
+                    setFanAuto(fanAuto);
+                    lastBtnPress = m;
+                }
+                if (btn == 5) {
+                    subEtapaFan = 1;
+                    lcd.clear();
+                    lastBtnPress = m;
+                }
+            }
+            else if (subEtapaFan == 1) { // TEMP LIGAR
+                lcd.setCursor(0, 0); 
+                lcd.print("TEMP LIGAR     ");
+                lcd.setCursor(0, 1); 
+                lcd.print(fanTempOn); 
+                lcd.print((char)223); 
+                lcd.print("C   ");
+                
+                if (btn == 2) { 
+                    fanTempOn = constrain(fanTempOn + 1, 50, 120); 
+                    lastBtnPress = m; 
+                }
+                if (btn == 3) { 
+                    fanTempOn = constrain(fanTempOn - 1, 50, 120); 
+                    lastBtnPress = m; 
+                }
+                if (btn == 5) { 
+                    subEtapaFan = 2; 
+                    lcd.clear(); 
+                    lastBtnPress = m; 
+                }
+            }
+            else if (subEtapaFan == 2) { // TEMP DESLIGAR
+                lcd.setCursor(0, 0); 
+                lcd.print("TEMP DESLIGAR  ");
+                lcd.setCursor(0, 1); 
+                lcd.print(fanTempOff); 
+                lcd.print((char)223); 
+                lcd.print("C   ");
+                
+                if (btn == 2) { 
+                    fanTempOff = constrain(fanTempOff + 1, 45, 115); 
+                    lastBtnPress = m; 
+                }
+                if (btn == 3) { 
+                    fanTempOff = constrain(fanTempOff - 1, 45, 115); 
+                    lastBtnPress = m; 
+                }
+                if (fanTempOff >= fanTempOn) fanTempOff = fanTempOn - fanHysteresis;
+                if (btn == 5) { 
+                    if (!fanAuto) {
+                        subEtapaFan = 3;  // Vai para controle manual
+                    } else {
+                        salvarFanConfig();
+                        lcd.clear(); 
+                        lcd.print("FAN SALVO!"); 
+                        delay(1000);
+                        etapaFuncoes = 0; 
+                        subMenuFuncoesCursor = 0; 
                         lcd.clear();
-                        lastBtnPress = m;
                     }
-
-                    lcd.setCursor(0, 0);
-                    lcd.print(subMenuFuncoesCursor == 0 ? "> ACEL. RAPIDA  " : "  ACEL. RAPIDA  ");
-                    lcd.setCursor(0, 1);
-                    lcd.print(subMenuFuncoesCursor == 1 ? "> DWELL BOBINA  " : "  DWELL BOBINA  ");
-                } else if (etapaFuncoes == 1) {
-                    if (btn == 2) { AE_TPS_max = constrain(AE_TPS_max + 0.1, 0.0, 5.0); lastBtnPress = m; }
-                    if (btn == 3) { AE_TPS_max = constrain(AE_TPS_max - 0.1, 0.0, 5.0); lastBtnPress = m; }
-                    if (btn == 5) { etapaFuncoes = 2; lcd.clear(); lastBtnPress = m; }
-
-                    lcd.setCursor(0, 0); lcd.print("GANHO AE (ms)   ");
-                    lcd.setCursor(0, 1); lcd.print("VALOR: "); lcd.print(AE_TPS_max, 1); lcd.print("   ");
-                } else if (etapaFuncoes == 2) {
-                    if (btn == 2) { AE_decay_ms = constrain(AE_decay_ms + 10, 50, 1000); lastBtnPress = m; }
-                    if (btn == 3) { AE_decay_ms = constrain(AE_decay_ms - 10, 50, 1000); lastBtnPress = m; }
-                    if (btn == 5) {
-                        EEPROM.put(addrAEMax, AE_TPS_max);
-                        EEPROM.put(addrAEDecay, AE_decay_ms);
-                        lcd.clear(); lcd.print("AE SALVO!"); delay(1000);
-                        etapaFuncoes = 0; subMenuFuncoesCursor = 0; lcd.clear(); lastBtnPress = m;
-                    }
-
-                    lcd.setCursor(0, 0); lcd.print("DECAIMENTO (ms) ");
-                    lcd.setCursor(0, 1); lcd.print("VALOR: "); lcd.print((int)AE_decay_ms); lcd.print("   ");
-                } else if (etapaFuncoes == 10) {
-                    if (btn == 2) { setIgnitionDwell(getIgnitionDwell() + 0.1); lastBtnPress = m; }
-                    if (btn == 3) { setIgnitionDwell(getIgnitionDwell() - 0.1); lastBtnPress = m; }
-                    if (btn == 5) {
-                        salvarDwellConfig();
-                        lcd.clear(); lcd.print("DWELL SALVO!"); delay(1000);
-                        etapaFuncoes = 0; subMenuFuncoesCursor = 0; lcd.clear(); lastBtnPress = m;
-                    }
-
-                    lcd.setCursor(0, 0); lcd.print("DWELL BOBINA    ");
-                    lcd.setCursor(0, 1); lcd.print("VALOR: "); lcd.print(getIgnitionDwell(), 1); lcd.print("ms   ");
+                    lastBtnPress = m;
+                }
+            }
+            else if (subEtapaFan == 3 && !fanAuto) { // MANUAL
+                lcd.setCursor(0, 0); 
+                lcd.print("MANUAL         ");
+                lcd.setCursor(0, 1); 
+                lcd.print(fanManualState ? "LIGADO " : "DESLIGADO");
+                
+                if (btn == 2 || btn == 3) {
+                    setFanManual(!fanManualState);
+                    lastBtnPress = m;
+                }
+                if (btn == 5) {
+                    salvarFanConfig();
+                    lcd.clear(); 
+                    lcd.print("FAN SALVO!"); 
+                    delay(1000);
+                    etapaFuncoes = 0; 
+                    subMenuFuncoesCursor = 0; 
+                    lcd.clear();
+                    lastBtnPress = m;
                 }
             }
         }
+    }
+}
+     
 
         else if (estadoAtual == CONFIGURACAO) {
             if (btn == 4 && (m - lastBtnPress > 200)) {
@@ -559,54 +872,117 @@ void loop() {
             }
         }
 
-        else if (estadoAtual == MAPA_INJ || estadoAtual == MAPA_IGN) {
-      if (!modoConfirmacao) {
+else if (estadoAtual == MAPA_INJ) {
+    if (!modoConfirmacao) {
         if (btn == 2 || btn == 3) {
-          if (tempoBotaoRetido == 0) { tempoBotaoRetido = m; intervaloAceleracao = 300; tBotaoAcel = 0; }
-          if (m - tBotaoAcel > (unsigned long)intervaloAceleracao) {
-            tBotaoAcel = m;
-            if (m - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
-            else if (m - tempoBotaoRetido > 400) intervaloAceleracao = 150;
-            if (campoFoco == 0) { if(btn == 2) editR = (editR + 1) % 16; if(btn == 3) editR = (editR + 15) % 16; } 
-            else if (campoFoco == 1) { if(btn == 2) editM = (editM + 1) % 16; if(btn == 3) editM = (editM + 15) % 16; } 
-            else if (campoFoco == 2) { 
-              if(btn == 2) ignTable[editR][editM] += 0.5; // Incremento de 0.5 graus
-              if(btn == 3) ignTable[editR][editM] -= 0.5;
-              ignTable[editR][editM] = constrain(ignTable[editR][editM], 5.0, 40.0);
+            if (tempoBotaoRetido == 0) { tempoBotaoRetido = m; intervaloAceleracao = 300; tBotaoAcel = 0; }
+            if (m - tBotaoAcel > (unsigned long)intervaloAceleracao) {
+                tBotaoAcel = m;
+                if (m - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
+                else if (m - tempoBotaoRetido > 400) intervaloAceleracao = 150;
+                if (campoFoco == 0) { if(btn == 2) editR = (editR + 1) % 16; if(btn == 3) editR = (editR + 15) % 16; } 
+                else if (campoFoco == 1) { if(btn == 2) editM = (editM + 1) % 16; if(btn == 3) editM = (editM + 15) % 16; } 
+                else if (campoFoco == 2) { 
+                    if(btn == 2) injTable[editR][editM] += 0.1; 
+                    if(btn == 3) injTable[editR][editM] -= 0.1;
+                    injTable[editR][editM] = constrain(injTable[editR][editM], 0.1, 20.0);
+                }
             }
-          }
         } else { tempoBotaoRetido = 0; }
+        
         if (m - lastBtnPress > 200) {
-          if (btn == 1) { campoFoco = (campoFoco + 1) % 3; lastBtnPress = m; }
-          if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; lastBtnPress = m; }
-          if (btn == 5) { modoConfirmacao = true; lcd.clear(); lastBtnPress = m; }
+            if (btn == 1) { campoFoco = (campoFoco + 1) % 3; lastBtnPress = m; }
+            if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; lastBtnPress = m; }
+            if (btn == 5) { modoConfirmacao = true; lcd.clear(); lastBtnPress = m; }
         }
+        
         lcd.setCursor(0,0);
-        if (campoFoco == 0 && blinkState) lcd.print("R:        "); else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
+        if (campoFoco == 0 && blinkState) lcd.print("R:     "); 
+        else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
         lcd.print("     ");
+        
         lcd.setCursor(8,0);
-        if (campoFoco == 1 && blinkState) lcd.print("M:        "); else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
+        if (campoFoco == 1 && blinkState) lcd.print("M:     "); 
+        else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
         lcd.print("    ");
+        
         lcd.setCursor(0,1);
-        if (campoFoco == 2 && blinkState) lcd.print("Avanco:       "); else { lcd.print("Avanco: "); lcd.print(ignTable[editR][editM],1); lcd.print((char)223); } // (char)223 = símbolo de grau
-        lcd.print("       ");
-      } else {
+        if (campoFoco == 2 && blinkState) lcd.print("T.Inj:       "); 
+        else { lcd.print("T.Inj: "); lcd.print(injTable[editR][editM],2); lcd.print("ms"); }
+        lcd.print("    ");
+    } else {
         if (m - lastBtnPress > 200) {
-          if (btn == 1 || btn == 4) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
-          if (btn == 5) { 
-            if(selecaoConfirmar == 0) salvarTabelasCompletas(); // Salva ambas tabelas
-            modoConfirmacao = false; 
-            estadoAtual = MENU_PRINCIPAL; 
-            lcd.clear(); 
-            lastBtnPress = m; 
-          }
+            if (btn == 1 || btn == 4) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
+            if (btn == 5) { 
+                if(selecaoConfirmar == 0) salvarTabela(); 
+                modoConfirmacao = false; 
+                estadoAtual = MENU_PRINCIPAL; 
+                lcd.clear(); 
+                lastBtnPress = m; 
+            }
+        }
+        lcd.setCursor(0,0); lcd.print("Deseja Salvar?  ");
+        lcd.setCursor(0,1); 
+        lcd.print(selecaoConfirmar == 0 ? ">SIM    " : " SIM    "); 
+        lcd.print(selecaoConfirmar == 1 ? ">NAO    " : " NAO    ");
+    }
+}
+
+else if (estadoAtual == MAPA_IGN) {
+    if (!modoConfirmacao) {
+        if (btn == 2 || btn == 3) {
+            if (tempoBotaoRetido == 0) { tempoBotaoRetido = m; intervaloAceleracao = 300; tBotaoAcel = 0; }
+            if (m - tBotaoAcel > (unsigned long)intervaloAceleracao) {
+                tBotaoAcel = m;
+                if (m - tempoBotaoRetido > 800) intervaloAceleracao = 40; 
+                else if (m - tempoBotaoRetido > 400) intervaloAceleracao = 150;
+                if (campoFoco == 0) { if(btn == 2) editR = (editR + 1) % 16; if(btn == 3) editR = (editR + 15) % 16; } 
+                else if (campoFoco == 1) { if(btn == 2) editM = (editM + 1) % 16; if(btn == 3) editM = (editM + 15) % 16; } 
+                else if (campoFoco == 2) { 
+                    if(btn == 2) ignTable[editR][editM] += 0.5; 
+                    if(btn == 3) ignTable[editR][editM] -= 0.5;
+                    ignTable[editR][editM] = constrain(ignTable[editR][editM], 5.0, 40.0);
+                }
+            }
+        } else { tempoBotaoRetido = 0; }
+        
+        if (m - lastBtnPress > 200) {
+            if (btn == 1) { campoFoco = (campoFoco + 1) % 3; lastBtnPress = m; }
+            if (btn == 4) { campoFoco = (campoFoco - 1 + 3) % 3; lastBtnPress = m; }
+            if (btn == 5) { modoConfirmacao = true; lcd.clear(); lastBtnPress = m; }
+        }
+        
+        lcd.setCursor(0,0);
+        if (campoFoco == 0 && blinkState) lcd.print("R:        "); 
+        else { lcd.print("R: "); lcd.print(rpmAxis[editR]); }
+        lcd.print("     ");
+        
+        lcd.setCursor(8,0);
+        if (campoFoco == 1 && blinkState) lcd.print("M:        "); 
+        else { lcd.print("M:"); lcd.print(mapAxis[editM],2); }
+        lcd.print("    ");
+        
+        lcd.setCursor(0,1);
+        if (campoFoco == 2 && blinkState) lcd.print("Avanco:       "); 
+        else { lcd.print("Avanco: "); lcd.print(ignTable[editR][editM],1); lcd.print((char)223); }
+        lcd.print("       ");
+    } else {
+        if (m - lastBtnPress > 200) {
+            if (btn == 1 || btn == 4) { selecaoConfirmar = !selecaoConfirmar; lastBtnPress = m; }
+            if (btn == 5) { 
+                if(selecaoConfirmar == 0) salvarTabelasCompletas();
+                modoConfirmacao = false; 
+                estadoAtual = MENU_PRINCIPAL; 
+                lcd.clear(); 
+                lastBtnPress = m; 
+            }
         }
         lcd.setCursor(0,0); lcd.print("Deseja Salvar?  ");
         lcd.setCursor(0,1); 
         lcd.print(selecaoConfirmar == 0 ? ">SIM    " : " SIM      "); 
         lcd.print(selecaoConfirmar == 1 ? ">NAO    " : " NAO      ");
-      }
-    } 
+    }
+}
     else {
       if (btn == 4 && (m - lastBtnPress > 200)) { estadoAtual = MENU_PRINCIPAL; lcd.clear(); lastBtnPress = m; }
       lcd.setCursor(0,0); lcd.print("> "); lcd.print(nomesMenus[menuCursor]);
