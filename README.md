@@ -12,6 +12,8 @@
 
 O **Density EFI** é um sistema de controle de injeção e ignição eletrônica de código aberto baseado na plataforma **Arduino Mega 2560**. Projetado para entusiastas e fins educacionais, o sistema utiliza uma arquitetura modular para oferecer precisão em tempo real no gerenciamento de motores a combustão interna.
 
+⚠️ **ATENÇÃO:** Nesta versão v1.0, aplicação **SOMENTE PARA MOTORES ASPIRADOS**
+
 ### 🚀 Funcionalidades Principais
 
 #### ⛽ Injeção Eletrônica
@@ -235,7 +237,37 @@ Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gra
 - GM/Opel **33004212**
 - Bosch **F00099P169**
 
-*Estes sensores GM 1-Bar possuem saída linear de 0.5V a 4.5V para pressão de 20kPa a 100kPa, ideais para aplicações aspiradas e turbo leve.*
+*Estes sensores GM 1-Bar possuem saída linear de 0.5V a 4.5V para pressão de 20kPa a 100kPa, somente para motores aspirados.*
+
+---
+
+## 🇺🇸 English
+
+**Density EFI** is an open-source electronic fuel injection and ignition control system based on the **Arduino Mega 2560** platform. Designed for enthusiasts and educational purposes, the system uses a modular architecture to deliver real-time precision in internal combustion engine management.
+
+⚠️ **WARNING:** In this v1.0 version, application **FOR NATURALLY ASPIRATED ENGINES ONLY**
+
+### 🚀 Key Features
+
+#### ⛽ Fuel Injection
+* **Hardware Precision:** Control via **Timer4** (16-bit) with microsecond resolution.
+* **Interactive Maps:** **16x16** 3D table (RPM x MAP) editable in real-time via LCD.
+* **Advanced Strategies:** *Full Group* and *Semi-Sequential* modes with battery voltage compensation.
+* **Safety:** *Flood Clear* function (fuel cutoff with throttle open during cranking).
+
+#### ⚡ Programmable Ignition
+* **Advance Control:** Dedicated 16x16 table with variable advance (5° to 40°).
+* **Operating Modes:** Support for **Wasted Spark** or **Distributor**.
+* **Dwell Management:** Configurable charge time (1.0 to 5.0ms) to protect coils.
+* **Synchronization:** Compatible with **60-2** trigger wheel (adjustable sync tooth 0-59) and calibration offset.
+
+#### 🌡️ Sensing and Actuation
+* **Sensors:** MAP (Pressure), TPS (Throttle Position), ECT (Engine Temperature) and Battery Voltage monitoring.
+* **Actuators:** Automatic/manual cooling fan control with hysteresis and MOSFET driver outputs for injectors and coils.
+
+#### 📊 Interface and Telemetry
+* **Dynamic HMI:** 16x2 LCD display with 4 monitoring screens (RPM, MAP, TPS, Injection, Advance, Temperature).
+* **Dash Software:** Serial telemetry (115200 baud) compatible with Python/Plotly dashboards.
 
 ---
 
@@ -438,7 +470,7 @@ To protect data, the system uses a confirmation flow before writing to permanent
 - GM/Opel **33004212**
 - Bosch **F00099P169**
 
-*These GM 1-Bar sensors feature linear output from 0.5V to 4.5V for pressure ranging from 20kPa to 100kPa, ideal for naturally aspirated and light turbo applications.*
+*These GM 1-Bar sensors feature linear output from 0.5V to 4.5V for pressure ranging from 20kPa to 100kPa, only for naturally aspirated engines.*
 
 ---
 
