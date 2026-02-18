@@ -124,6 +124,73 @@ flowchart TD
 
 ---
 
+## 🎮 Comandos de Navegação (HMI)
+
+A interface é operada através de um teclado analógico de 5 botões. O comportamento dos botões muda dinamicamente dependendo do modo atual:
+
+| Botão | Ação | Modo |
+|:-----:|------|------|
+| **🔼** | Move o cursor para o item anterior / Aumenta valor | Todos os menus |
+| **🔽** | Move o cursor para o próximo item / Diminui valor | Todos os menus |
+| **⏺️ SELECT** | Entra no menu selecionado / Confirma edição | Todos os menus |
+| **◀️** | Alterna telas (sentido anti-horário) / Volta | MONITORAMENTO / Configurações |
+| **▶️** | Alterna telas (sentido horário) / Avança | MONITORAMENTO |
+| **⏳ Hold (3s)** | Aceleração de incremento | Editando tabelas |
+
+---
+
+## 📋 Detalhamento das Telas de Monitoramento
+
+| Tela | Linha Superior | Linha Inferior | Descrição |
+|:----:|----------------|-----------------|-----------|
+| **T0** | `R:2500 I:15°` | `M:-0.35 F:3.2ms` | Rotação, Avanço, Pressão, Injeção |
+| **T1** | `R:2500 D:3.5ms` | `IG:15° PT:15°` | Rotação, Dwell, Ignição, Ponto |
+| **T2** | `R:2500 T:45%` | `V:13.2V F:3.2ms` | Rotação, TPS, Bateria, Injeção |
+| **T3** | `ECT:85°C FAN:OFF` | `MODO:AUTO SET:95°` | Temperatura, Ventilador, Config |
+
+---
+
+## ✏️ Modos de Edição
+
+### 1. Edição de Mapas (Injeção e Ignição)
+Ao entrar em uma tabela 16x16, utilize os comandos abaixo para calibrar o motor em tempo real:
+
+| Comando | Ação |
+|:-------:|------|
+| **🔼 / 🔽** | Navega entre as faixas de RPM (Eixo Y) |
+| **◀️ / ▶️** | Navega entre as faixas de MAP/Carga (Eixo X) |
+| **⏺️ SELECT** | Ativa o modo de edição do valor da célula atual |
+| **Hold (Reter)** | Mantendo o botão pressionado, o valor incrementa rapidamente |
+
+### 2. Configuração do Ventilador
+O menu do ventilador possui um submenu com 4 etapas:
+
+| Etapa | Função | Ajuste |
+|:-----:|--------|--------|
+| **1** | Modo | AUTO / MANUAL |
+| **2** | Temperatura LIGAR | 50 - 120°C |
+| **3** | Temperatura DESLIGAR | 45 - 115°C |
+| **4** | Controle Manual | LIGADO / DESLIGADO |
+
+---
+
+## 💾 Fluxo de Salvamento
+
+Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gravar na memória permanente:
+
+1. Pressione **◀️ (LEFT)** para sair após editar os mapas.
+2. O sistema exibirá: **"Deseja Salvar?"**.
+3. Selecione **>SIM** para gravar na EEPROM ou **>NÃO** para descartar as alterações daquela sessão.
+
+```
+┌─────────────────┐
+│  Deseja Salvar? │
+│  >SIM     NÃO   │
+└─────────────────┘
+```
+
+---
+
 ## 🗺️ Menu Structure (English)
 
 ```mermaid
