@@ -4,69 +4,71 @@
 
 ---
 
-## 🇧🇷 Português
-
-O **Density EFI** é um sistema de controle de injeção eletrônica (ECU) de código aberto para a plataforma **Arduino Mega 2560**. Esta versão utiliza uma arquitetura modular para garantir precisão em tempo real e estabilidade no controle do motor, agora com **controle completo de ignição** e funcionalidades avançadas de calibração.
-
-### 🚀 Funcionalidades Atuais
-- ⛽ **Injeção de Combustível:** Controle via hardware com precisão de microssegundos, operando em modo *Full Group* ou *Semi-Sequencial*.
-- ⚡ **Ignição com Centelha Perdida:** Controle de avanço variável (5° a 40°) e tempo de carga da bobina (dwell) ajustável (1.0 a 5.0 ms). Suporte para sensores 60-2 (reluctor) ou distribuidor.
-- 🔄 **Sincronismo Avançado:** Decodificação de sinal de rotação com rastreamento de ângulo do virabrequim (0° a 720°) e detecção automática de dente faltante.
-- 📊 **Mapas 16x16 Interativos:** Tabelas de injeção e ignição editáveis diretamente pelo LCD, com navegação simplificada.
-- 💾 **Persistência EEPROM:** Armazenamento automático de mapas, calibrações de sensores (TPS, MAP), tipo de sinal, offset de ignição e parâmetros de dwell.
-- 🖥️ **Interface HMI:** Menus dinâmicos com três telas de monitoramento rotativas (RPM, MAP, TPS, injeção, avanço, dwell e tensão da bateria) e ajuste fino sem necessidade de PC.
-- 🔋 **Monitoramento de Bateria:** Leitura da tensão da bateria via divisor de tensão (pino A5) para diagnóstico.
-
-### 📂 Estrutura Modular
-- `Crank.cpp/h`: Gerenciamento de interrupções de rotação, cálculo de RPM e sincronismo para sensores 60-2 ou distribuidor.
-- `IgnitionControl.cpp/h`: Controle do avanço de ignição e tempo de carga da bobina (dwell), com modos centelha perdida e distribuidor.
-- `Injector.cpp/h`: Escalonador de injeção baseado em posição angular e tempo de abertura, com enriquecimento por aceleração (AE) ajustável.
-- `Density_EFI.ino`: Orquestrador principal, leitura de sensores, gerenciamento da interface HMI e integração dos módulos.
-
-### 🗺️ Estrutura de Menus (Atualizada)
-![Estrutura de Menus](images/Estrutura_de_menus.png)
+### 💻 Layout Hardware Density EFI V1.0 
+![Layout Hardware](images/DensityEFI_V1.png)
 
 ---
+## 🇧🇷 Português
+
+O **Density EFI** é um sistema de controle de injeção e ignição eletrônica de código aberto baseado na plataforma **Arduino Mega 2560**. Projetado para entusiastas e fins educacionais, o sistema utiliza uma arquitetura modular para oferecer precisão em tempo real no gerenciamento de motores a combustão interna.
+
+### 🚀 Funcionalidades Principais
+
+#### ⛽ Injeção Eletrônica
+* **Precisão de Hardware:** Controle via **Timer4** (16-bit) com resolução de microssegundos.
+* **Mapas Interativos:** Tabela 3D **16x16** (RPM x MAP) editável em tempo real via LCD.
+* **Estratégias Avançadas:** Modos *Full Group* e *Semi-Sequencial* com compensação por tensão de bateria.
+* **Segurança:** Função *Flood Clear* (corte de combustível com borboleta aberta na partida).
+
+#### ⚡ Ignição Programável
+* **Controle de Avanço:** Tabela 16x16 dedicada com avanço variável (5° a 40°).
+* **Modos de Operação:** Suporte para **Centelha Perdida** (Wasted Spark) ou **Distribuidor**.
+* **Gerenciamento de Dwell:** Tempo de carga configurável (1.0 a 5.0ms) para proteger as bobinas.
+* **Sincronismo:** Compatível com roda fônica **60-2** (ajuste de dente de sincronia 0-59) e offset de calibração.
+
+#### 🌡️ Sensoriamento e Atuação
+* **Sensores:** MAP (Pressão), TPS (Posição da Borboleta), ECT (Temperatura do Motor) e monitoramento de Voltagem da Bateria.
+* **Atuadores:** Controle de eletroventilador automático/manual com histerese e saídas para driver MOSFET de injetores e bobinas.
+
+#### 📊 Interface e Telemetria
+* **HMI Dinâmica:** Display LCD 16x2 com 4 telas de monitoramento (RPM, MAP, TPS, Injeção, Avanço, Temperatura).
+* **Software Dash:** Telemetria via Serial (115200 baud) compatível com dashboards em Python/Plotly.
+
+### 📂 Estrutura de Arquivos
+- `Density_EFI.ino`: Orquestrador principal e lógica de interface.
+- `Crank.cpp/h`: Gestão de interrupções, RPM e sincronismo de dentes.
+- `IgnitionControl.cpp/h`: Lógica não-bloqueante para avanço e dwell.
+- `Injector.cpp/h`: Cálculo de pulse-width e Enriquecimento por Aceleração ($AE_{tps}$).
+
 ---
 
 ## 🇺🇸 English
 
-**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. This version utilizes a modular architecture to ensure real-time precision and stable engine control, now featuring **complete ignition control** and advanced calibration features.
+**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. It features a modular architecture designed for real-time precision, offering full control over fuel injection and ignition timing.
 
-### 🚀 Current Features
-- ⛽ **Fuel Injection:** Hardware-level control with microsecond precision, supporting *Full Group* or *Semi-Sequential* modes.
-- ⚡ **Wasted Spark Ignition:** Variable timing advance (5° to 40°) and adjustable coil dwell time (1.0 to 5.0 ms). Supports 60-2 (reluctor) or distributor sensors.
-- 🔄 **Advanced Synchronization:** Rotation signal decoding with crank angle tracking (0° to 720°) and automatic missing tooth detection.
-- 📊 **Interactive 16x16 Maps:** Full fuel and ignition tables editable directly via the LCD interface, with simplified navigation.
-- 💾 **EEPROM Persistence:** Automatic storage of maps, sensor calibrations (TPS, MAP), signal type, ignition offset, and dwell parameters.
-- 🖥️ **HMI Interface:** Dynamic menus with three rotating monitoring screens (RPM, MAP, TPS, injection, advance, dwell, and battery voltage) for fine-tuning without a PC.
-- 🔋 **Battery Monitoring:** Reads battery voltage via a voltage divider (pin A5) for diagnostic purposes.
+### 🚀 Key Features
+- ⛽ **Fuel Injection:** Hardware-timed pulses (Timer4) with 16x16 3D maps and *Flood Clear* protection.
+- ⚡ **Programmable Ignition:** Supports *Wasted Spark* or *Distributor* modes, adjustable Dwell (1-5ms), and 16x16 advance maps.
+- 🔄 **Robust Sync:** Optimized for 60-2 trigger wheels with configurable sync tooth and ignition offset.
+- 🌡️ **Full Sensing:** Real-time monitoring of MAP, TPS, Engine Temp (ECT), and Battery Voltage.
+- 🖥️ **HMI & Telemetry:** 4-screen LCD interface for PC-less tuning and 115200 baud serial output for data logging.
 
-### 📂 Modular Structure
-- `Crank.cpp/h`: Rotation interrupt management, RPM calculation, and synchronization for 60-2 or distributor sensors.
-- `IgnitionControl.cpp/h`: Ignition timing advance and coil dwell control, with wasted spark and distributor modes.
-- `Injector.cpp/h`: Injection scheduler based on angular position and pulse width, with adjustable acceleration enrichment (AE).
-- `Density_EFI.ino`: Main orchestrator, sensor reading, HMI interface management, and module integration.
-
-### 🗺️ Menu Structure (Updated)
-![Menu Structure](images/Menu_structure.png)
-
----
 ---
 
 ### 📌 Pinagem de Referência / Pinout (Mega 2560)
 
-| Função / Function | Pino / Pin | Nota / Note |
+| Função / Function | Pino / Pin | Tipo / Type |
 | :--- | :--- | :--- |
-| **RPM Signal** | D21 | Entrada de Interrupção / Interrupt Input |
-| **Injector Out** | D22 | Saída p/ Driver MOSFET / MOSFET Driver Output |
-| **Ignition Coil A** | D40 | Bobina 1 e 4 (centelha perdida) / Coil 1 & 4 (wasted spark) |
-| **Ignition Coil B** | D38 | Bobina 2 e 3 (centelha perdida) / Coil 2 & 3 (wasted spark) |
-| **MAP Sensor** | A4 | Entrada Analógica / Analog Input |
-| **TPS Sensor** | A3 | Entrada Analógica / Analog Input |
-| **Battery Voltage** | A5 | Entrada Analógica (com divisor de tensão) / Analog Input (with voltage divider) |
+| **RPM Signal (Crank)** | D21 | Entrada (Interrupt) |
+| **Injector Out** | D22 | Saída (MOSFET Driver) |
+| **Ignition Coil A** | D40 | Cilindros 1-4 |
+| **Ignition Coil B** | D38 | Cilindros 2-3 |
+| **MAP Sensor** | A4 | Analógica (0-5V) |
+| **TPS Sensor** | A3 | Analógica (0-5V) |
+| **ECT (Temp)** | A1 | Analógica (NTC 10k) |
+| **Battery Voltage** | A5 | Analógica (Divisor) |
+| **Eletroventilador** | D47 | Saída (Relé) |
 | **LCD Pins** | 8, 9, 4, 5, 6, 7 | Interface 4-bits |
-| **Buttons** | A0 | Escada de Resistores (Keypad) / Resistor ladder (keypad) |
 
 ---
 
