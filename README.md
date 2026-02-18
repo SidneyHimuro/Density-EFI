@@ -227,6 +227,18 @@ Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gra
 
 ---
 
+### 🔧 Sensores Compatíveis
+
+**Sensor MAP (Pressão):**
+- GM/Opel **16137039**
+- GM/Opel **33000153**
+- GM/Opel **33004212**
+- Bosch **F00099P169**
+
+*Estes sensores GM 1-Bar possuem saída linear de 0.5V a 4.5V para pressão de 20kPa a 100kPa, ideais para aplicações aspiradas e turbo leve.*
+
+---
+
 ## 🗺️ Menu Structure (English)
 
 ```mermaid
@@ -415,6 +427,18 @@ To protect data, the system uses a confirmation flow before writing to permanent
 | **Battery Voltage** | A5 | Analog (Divider) |
 | **Cooling Fan** | D47 | Output (Relay) |
 | **LCD Pins** | 8, 9, 4, 5, 6, 7 | 4-bit Interface |
+
+---
+
+### 🔧 Compatible Sensors
+
+**MAP Sensor:**
+- GM/Opel **16137039**
+- GM/Opel **33000153**
+- GM/Opel **33004212**
+- Bosch **F00099P169**
+
+*These GM 1-Bar sensors feature linear output from 0.5V to 4.5V for pressure ranging from 20kPa to 100kPa, ideal for naturally aspirated and light turbo applications.*
 
 ---
 
