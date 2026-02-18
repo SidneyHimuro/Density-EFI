@@ -43,49 +43,44 @@ O **Density EFI** é um sistema de controle de injeção e ignição eletrônica
 ### 🗺️ Estrutura de Menus (HMI)
 O **Density EFI** possui uma interface navegável via LCD 16x2 utilizando um teclado de 5 botões (Keypad Analógico). A estrutura foi projetada para permitir ajustes finos sem a necessidade de um computador conectado.
 
-graph TD
-    %% Estilo
-    classDef main fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef monitor fill:#bbf,stroke:#333,stroke-width:1px;
-    classDef maps fill:#bfb,stroke:#333,stroke-width:1px;
-    classDef settings fill:#fbb,stroke:#333,stroke-width:1px;
+melhore o diagrama abaixo para incluir no readme.md:
 
-    ROOT[MENU PRINCIPAL]:::main --> MON[MONITORAMENTO]:::monitor
-    ROOT --> MINJ[MAPA INJEÇÃO]:::maps
-    ROOT --> MIGN[MAPA IGNIÇÃO]:::maps
-    ROOT --> FUNC[FUNÇÕES]:::settings
-    ROOT --> CONF[CONFIGURAÇÃO]:::settings
-
-    %% Telas de Monitoramento
-    subgraph "Monitoramento (4 Telas ←/→)"
-    MON --> T0[T0: RPM | IGN | MAP | INJ]
-    MON --> T1[T1: RPM | DWELL | PONTO]
-    MON --> T2[T2: RPM | TPS | BAT | INJ]
-    MON --> T3[T3: ECT | FAN | MODO]
-    end
-
-    %% Mapas
-    subgraph "Edição de Tabelas (16x16)"
-    MINJ --> MINJ_ED[Ajuste: 0.1ms steps]
-    MIGN --> MIGN_ED[Ajuste: 0.5° steps]
-    MINJ_ED --> SAVE[Confirmação e Gravação EEPROM]
-    MIGN_ED --> SAVE
-    end
-
-    %% Funções
-    subgraph "Ajustes Dinâmicos"
-    FUNC --> AE[Acel. Rápida: Ganho e Decaimento]
-    FUNC --> DW[Dwell: 1.0 a 5.0ms]
-    FUNC --> FAN[Ventilador: Auto/Man e Temp]
-    end
-
-    %% Configuração
-    subgraph "Calibração e Hardware"
-    CONF --> CTPS[Calibrar TPS: 0% e 100%]
-    CONF --> CMAP[Calibrar MAP: Atmosférico]
-    CONF --> CSIG[Sinal: 60-2 ou Distribuidor]
-    CONF --> COFF[Offset Ignição: -10° a +10°]
-    end
+MENU PRINCIPAL
+│
+├─ MONITORAMENTO (4 telas ←/→)
+│ ├─ T0: RPM | IGN | MAP | INJ
+│ ├─ T1: RPM | DWELL| IG | PONTO
+│ ├─ T2: RPM | TPS | BAT | INJ
+│ └─ T3: ECT | FAN | MODO| SET
+│
+├─ MAPA INJECAO
+│ ├─ Edição tabela 16x16 (0.1ms steps)
+│ ├─ Navegação: UP/DOWN (RPM), LEFT/RIGHT (MAP)
+│ └─ Confirmação: SIM/NAO com salvamento EEPROM
+│
+├─ MAPA IGNICAO
+│ ├─ Edição tabela 16x16 (0.5° steps)
+│ ├─ Mesma navegação da injeção
+│ └─ Salva ambas as tabelas
+│
+├─ FUNCOES
+│ ├─ ACEL. RAPIDA
+│ │ ├─ Ganho AE (0.0-5.0ms)
+│ │ └─ Decaimento (50-1000ms)
+│ ├─ DWELL BOBINA
+│ │ └─ Ajuste (1.0-5.0ms)
+│ └─ VENTILADOR
+│ ├─ Modo AUTO/MANUAL
+│ ├─ Temperaturas ON/OFF
+│ └─ Controle manual
+│
+└─ CONFIGURACAO
+├─ CALIBRAR TPS (0% e 100%)
+├─ CALIBRAR MAP (atmosférico)
+├─ SINAL ROTACAO
+│ ├─ 60-2 (FONICA) + dente sincro
+│ └─ DISTRIBUIDOR
+└─ OFFSET IGNICAO (-10° a +10°)
 
 ### 🎮 Comandos de Navegação (HMI)
 A interface é operada através de um teclado analógico de 5 botões. O comportamento dos botões muda dinamicamente dependendo do modo atual:
