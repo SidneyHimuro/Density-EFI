@@ -34,114 +34,287 @@ O **Density EFI** é um sistema de controle de injeção e ignição eletrônica
 * **HMI Dinâmica:** Display LCD 16x2 com 4 telas de monitoramento (RPM, MAP, TPS, Injeção, Avanço, Temperatura).
 * **Software Dash:** Telemetria via Serial (115200 baud) compatível com dashboards em Python/Plotly.
 
-### 📂 Estrutura de Arquivos
-- `Density_EFI.ino`: Orquestrador principal e lógica de interface.
-- `Crank.cpp/h`: Gestão de interrupções, RPM e sincronismo de dentes.
-- `IgnitionControl.cpp/h`: Lógica não-bloqueante para avanço e dwell.
-- `Injector.cpp/h`: Cálculo de pulse-width e Enriquecimento por Aceleração ($AE_{tps}$).
+---
 
-### 🗺️ Estrutura de Menus (HMI)
-O **Density EFI** possui uma interface navegável via LCD 16x2 utilizando um teclado de 5 botões (Keypad Analógico). A estrutura foi projetada para permitir ajustes finos sem a necessidade de um computador conectado.
+## 🗺️ Estrutura de Menus (Português)
 
-melhore o diagrama abaixo para incluir no readme.md:
+```mermaid
+flowchart TD
+    M["🏁 MENU PRINCIPAL"] --> A
+    
+    subgraph A [MONITORAMENTO]
+        direction LR
+        T0["📟 Tela 0<br>RPM | IGN<br>MAP | INJ"] --> T1["📟 Tela 1<br>RPM | DWELL<br>IG | PONTO"]
+        T1 --> T2["📟 Tela 2<br>RPM | TPS<br>BAT | INJ"]
+        T2 --> T3["📟 Tela 3<br>ECT | FAN<br>MODO | SET"]
+        T3 -.-> T0
+        
+        NAV1["◀️ ▶️ Navegação<br>LEFT/RIGHT"] --> T0
+    end
 
-MENU PRINCIPAL
-│
-├─ MONITORAMENTO (4 telas ←/→)
-│ ├─ T0: RPM | IGN | MAP | INJ
-│ ├─ T1: RPM | DWELL| IG | PONTO
-│ ├─ T2: RPM | TPS | BAT | INJ
-│ └─ T3: ECT | FAN | MODO| SET
-│
-├─ MAPA INJECAO
-│ ├─ Edição tabela 16x16 (0.1ms steps)
-│ ├─ Navegação: UP/DOWN (RPM), LEFT/RIGHT (MAP)
-│ └─ Confirmação: SIM/NAO com salvamento EEPROM
-│
-├─ MAPA IGNICAO
-│ ├─ Edição tabela 16x16 (0.5° steps)
-│ ├─ Mesma navegação da injeção
-│ └─ Salva ambas as tabelas
-│
-├─ FUNCOES
-│ ├─ ACEL. RAPIDA
-│ │ ├─ Ganho AE (0.0-5.0ms)
-│ │ └─ Decaimento (50-1000ms)
-│ ├─ DWELL BOBINA
-│ │ └─ Ajuste (1.0-5.0ms)
-│ └─ VENTILADOR
-│ ├─ Modo AUTO/MANUAL
-│ ├─ Temperaturas ON/OFF
-│ └─ Controle manual
-│
-└─ CONFIGURACAO
-├─ CALIBRAR TPS (0% e 100%)
-├─ CALIBRAR MAP (atmosférico)
-├─ SINAL ROTACAO
-│ ├─ 60-2 (FONICA) + dente sincro
-│ └─ DISTRIBUIDOR
-└─ OFFSET IGNICAO (-10° a +10°)
+    M --> B
+    
+    subgraph B [MAPA INJEÇÃO]
+        BI["⚙️ Edição 16x16<br>Passos: 0.1ms"]
+        BN["🔼 RPM<br>◀️▶️ MAP<br>⏺️ SEL Editar"]
+        BC["💾 Salvar?<br>SIM / NÃO"]
+        BI --> BN --> BC
+    end
 
-### 🎮 Comandos de Navegação (HMI)
-A interface é operada através de um teclado analógico de 5 botões. O comportamento dos botões muda dinamicamente dependendo do modo atual:
+    M --> C
+    
+    subgraph C [MAPA IGNIÇÃO]
+        CI["⚙️ Edição 16x16<br>Passos: 0.5°"]
+        CN["🔼 RPM<br>◀️▶️ MAP<br>⏺️ SEL Editar"]
+        CC["💾 Salvar?<br>SIM / NÃO"]
+        CI --> CN --> CC
+    end
 
-Botão,Ação
-🔼 Cima,Move o cursor para o item anterior.
-🔽 Baixo,Move o cursor para o próximo item.
-⏺️ Select,Entra no menu selecionado ou confirma uma alteração.
-◀️ Esquerda,Alterna entre as telas de Monitoramento (sentido anti-horário).
-▶️ Direita,Alterna entre as telas de Monitoramento (sentido horário).
+    M --> D
+    
+    subgraph D [FUNÇÕES]
+        direction TB
+        FA["⚡ ACEL. RÁPIDA"]
+        FA --> FA1["📈 Ganho AE<br>0.0 - 5.0ms"]
+        FA1 --> FA2["⏱️ Decaimento<br>50 - 1000ms"]
+        
+        DW["🔧 DWELL BOBINA"]
+        DW --> DW1["⚡ Tempo Carga<br>1.0 - 5.0ms"]
+        
+        FV["🌀 VENTILADOR"]
+        FV --> FV1["🔄 Modo:<br>AUTO / MANUAL"]
+        FV1 --> FV2["🌡️ Temp LIGAR<br>50 - 120°C"]
+        FV2 --> FV3["🌡️ Temp DESLIGAR<br>45 - 115°C"]
+        FV3 --> FV4["✋ Controle Manual"]
+    end
 
-### 2. Edição de Mapas (Injeção e Ignição)
-Ao entrar em uma tabela 16x16, utilize os comandos abaixo para calibrar o motor em tempo real:
+    M --> E
+    
+    subgraph E [CONFIGURAÇÃO]
+        direction TB
+        CT["📐 CALIBRAR TPS"]
+        CT --> CT1["0% (Fechado)"]
+        CT1 --> CT2["100% (Aberto)"]
+        
+        CM["📊 CALIBRAR MAP"]
+        CM --> CM1["🌪️ Atmosférico"]
+        
+        SR["🔄 SINAL ROTAÇÃO"]
+        SR --> SR1["60-2 FÔNICA"]
+        SR1 --> SR1A["⚙️ Dente Sincro<br>0-59"]
+        SR --> SR2["DISTRIBUIDOR"]
+        
+        OI["🎯 OFFSET IGNIÇÃO"]
+        OI --> OI1["-10° a +10°<br>Passos 0.5°"]
+    end
 
-Comando,Ação
-🔼 / 🔽,Navega entre as faixas de RPM (Eixo Y).
-◀️ / ▶️,Navega entre as faixas de MAP/Carga (Eixo X).
-⏺️ Select,Ativa o modo de edição do valor da célula atual.
-Hold (Reter),"Mantendo o botão pressionado, o valor incrementa rapidamente."
-
-### 3. Fluxo de Salvamento
-Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gravar na memória permanente:
-
-Pressione Back/Sair após editar os mapas.
-
-O sistema exibirá: Deseja Salvar?.
-
-Selecione >SIM para gravar na EEPROM ou >NÃO para descartar as alterações daquela sessão.
+    classDef monitor fill:#e1f5fe,stroke:#01579b
+    classDef maps fill:#fff3e0,stroke:#e65100
+    classDef func fill:#e8f5e8,stroke:#1b5e20
+    classDef config fill:#f3e5f5,stroke:#4a148c
+    classDef save fill:#ffebee,stroke:#b71c1c
+    
+    class A,T0,T1,T2,T3,NAV1 monitor
+    class B,BI,BN,BC maps
+    class C,CI,CN,CC maps
+    class D,FA,FA1,FA2,DW,DW1,FV,FV1,FV2,FV3,FV4 func
+    class E,CT,CT1,CT2,CM,CM1,SR,SR1,SR1A,SR2,OI,OI1 config
+    class BC,CC save
+```
 
 ---
 
-## 🇺🇸 English
+## 🗺️ Menu Structure (English)
 
-**Density EFI** is an open-source engine management system (ECU) for the **Arduino Mega 2560**. It features a modular architecture designed for real-time precision, offering full control over fuel injection and ignition timing.
+```mermaid
+flowchart TD
+    M["🏁 MAIN MENU"] --> A
+    
+    subgraph A [MONITORING]
+        direction LR
+        T0["📟 Screen 0<br>RPM | IGN<br>MAP | INJ"] --> T1["📟 Screen 1<br>RPM | DWELL<br>IG | POINT"]
+        T1 --> T2["📟 Screen 2<br>RPM | TPS<br>BAT | INJ"]
+        T2 --> T3["📟 Screen 3<br>ECT | FAN<br>MODE | SET"]
+        T3 -.-> T0
+        
+        NAV1["◀️ ▶️ Navigation<br>LEFT/RIGHT"] --> T0
+    end
 
-### 🚀 Key Features
-- ⛽ **Fuel Injection:** Hardware-timed pulses (Timer4) with 16x16 3D maps and *Flood Clear* protection.
-- ⚡ **Programmable Ignition:** Supports *Wasted Spark* or *Distributor* modes, adjustable Dwell (1-5ms), and 16x16 advance maps.
-- 🔄 **Robust Sync:** Optimized for 60-2 trigger wheels with configurable sync tooth and ignition offset.
-- 🌡️ **Full Sensing:** Real-time monitoring of MAP, TPS, Engine Temp (ECT), and Battery Voltage.
-- 🖥️ **HMI & Telemetry:** 4-screen LCD interface for PC-less tuning and 115200 baud serial output for data logging.
+    M --> B
+    
+    subgraph B [INJ MAP]
+        BI["⚙️ 16x16 Edit<br>Steps: 0.1ms"]
+        BN["🔼 RPM<br>◀️▶️ MAP<br>⏺️ SEL Edit"]
+        BC["💾 Save?<br>YES / NO"]
+        BI --> BN --> BC
+    end
+
+    M --> C
+    
+    subgraph C [IGN MAP]
+        CI["⚙️ 16x16 Edit<br>Steps: 0.5°"]
+        CN["🔼 RPM<br>◀️▶️ MAP<br>⏺️ SEL Edit"]
+        CC["💾 Save?<br>YES / NO"]
+        CI --> CN --> CC
+    end
+
+    M --> D
+    
+    subgraph D [FUNCTIONS]
+        direction TB
+        FA["⚡ ACCEL. ENRICHMENT"]
+        FA --> FA1["📈 AE GAIN<br>0.0 - 5.0ms"]
+        FA1 --> FA2["⏱️ DECAY TIME<br>50 - 1000ms"]
+        
+        DW["🔧 COIL DWELL"]
+        DW --> DW1["⚡ Charge Time<br>1.0 - 5.0ms"]
+        
+        FV["🌀 COOLING FAN"]
+        FV --> FV1["🔄 Mode:<br>AUTO / MANUAL"]
+        FV1 --> FV2["🌡️ Temp ON<br>50 - 120°C"]
+        FV2 --> FV3["🌡️ Temp OFF<br>45 - 115°C"]
+        FV3 --> FV4["✋ Manual Control"]
+    end
+
+    M --> E
+    
+    subgraph E [CONFIGURATION]
+        direction TB
+        CT["📐 CALIBRATE TPS"]
+        CT --> CT1["0% (Closed)"]
+        CT1 --> CT2["100% (Open)"]
+        
+        CM["📊 CALIBRATE MAP"]
+        CM --> CM1["🌪️ Atmospheric"]
+        
+        SR["🔄 RPM SIGNAL"]
+        SR --> SR1["60-2 RELUCTOR"]
+        SR1 --> SR1A["⚙️ Sync Tooth<br>0-59"]
+        SR --> SR2["DISTRIBUTOR"]
+        
+        OI["🎯 IGNITION OFFSET"]
+        OI --> OI1["-10° to +10°<br>Steps 0.5°"]
+    end
+
+    classDef monitor fill:#e1f5fe,stroke:#01579b
+    classDef maps fill:#fff3e0,stroke:#e65100
+    classDef func fill:#e8f5e8,stroke:#1b5e20
+    classDef config fill:#f3e5f5,stroke:#4a148c
+    classDef save fill:#ffebee,stroke:#b71c1c
+    
+    class A,T0,T1,T2,T3,NAV1 monitor
+    class B,BI,BN,BC maps
+    class C,CI,CN,CC maps
+    class D,FA,FA1,FA2,DW,DW1,FV,FV1,FV2,FV3,FV4 func
+    class E,CT,CT1,CT2,CM,CM1,SR,SR1,SR1A,SR2,OI,OI1 config
+    class BC,CC save
+```
 
 ---
 
-### 📌 Pinagem de Referência / Pinout (Mega 2560)
+## 🎮 Navigation Commands (HMI)
+
+The interface is operated through a 5-button analog keypad. Button behavior changes dynamically depending on the current mode:
+
+| Button | Action | Mode |
+|:------:|--------|------|
+| **🔼** | Move cursor up / Increase value | All menus |
+| **🔽** | Move cursor down / Decrease value | All menus |
+| **⏺️ SELECT** | Enter selected menu / Confirm edit | All menus |
+| **◀️** | Switch screens (counter-clockwise) / Back | MONITORING / Configuration |
+| **▶️** | Switch screens (clockwise) / Next | MONITORING |
+| **⏳ Hold (3s)** | Acceleration increment | Table editing |
+
+---
+
+## 📋 Monitoring Screens Detail
+
+| Screen | Top Line | Bottom Line | Description |
+|:------:|----------|-------------|-------------|
+| **T0** | `R:2500 I:15°` | `M:-0.35 F:3.2ms` | RPM, Advance, Pressure, Injection |
+| **T1** | `R:2500 D:3.5ms` | `IG:15° PT:15°` | RPM, Dwell, Ignition, Point |
+| **T2** | `R:2500 T:45%` | `V:13.2V F:3.2ms` | RPM, TPS, Battery, Injection |
+| **T3** | `ECT:85°C FAN:OFF` | `MODE:AUTO SET:95°` | Temperature, Fan, Config |
+
+---
+
+## ✏️ Edit Modes
+
+### 1. Map Editing (Injection and Ignition)
+When entering a 16x16 table, use the commands below to calibrate the engine in real-time:
+
+| Command | Action |
+|:-------:|--------|
+| **🔼 / 🔽** | Navigate between RPM ranges (Y-axis) |
+| **◀️ / ▶️** | Navigate between MAP/Load ranges (X-axis) |
+| **⏺️ SELECT** | Activate edit mode for current cell value |
+| **Hold** | Press and hold for rapid increment |
+
+### 2. Fan Configuration
+The fan menu has a submenu with 4 steps:
+
+| Step | Function | Range |
+|:----:|----------|-------|
+| **1** | Mode | AUTO / MANUAL |
+| **2** | Temperature ON | 50 - 120°C |
+| **3** | Temperature OFF | 45 - 115°C |
+| **4** | Manual Control | ON / OFF |
+
+---
+
+## 💾 Save Flow
+
+To protect data, the system uses a confirmation flow before writing to permanent memory:
+
+1. Press **◀️ (LEFT)** to exit after editing maps.
+2. The system will display: **"Save?"**.
+3. Select **>YES** to write to EEPROM or **>NO** to discard changes from that session.
+
+```
+┌─────────────────┐
+│    Save?        │
+│  >YES     NO    │
+└─────────────────┘
+```
+
+---
+
+## 🎯 Usage Tips
+
+* **In MONITORING**, use **◀️** and **▶️** to quickly switch between the 4 screens.
+* **In MAPS**, press **SELECT** on the desired value and hold **🔼/🔽** for fast increment.
+* **Always confirm** critical changes on the "CRITICAL ITEM!!" screen to avoid data loss.
+* **In FAN**, MANUAL mode only appears after disabling AUTO.
+* **MAP calibration** should be done with the engine off, key on.
+
+---
+
+## 📂 File Structure
+- `Density_EFI.ino`: Main orchestrator and interface logic.
+- `Crank.cpp/h`: Interrupt management, RPM and tooth synchronization.
+- `IgnitionControl.cpp/h`: Non-blocking logic for advance and dwell.
+- `Injector.cpp/h`: Pulse-width calculation and Acceleration Enrichment (AE_tps).
+- `DashV1.py`: Python graphical interface for telemetry.
+
+---
+
+## 📌 Pinagem de Referência / Pinout (Mega 2560)
 
 | Função / Function | Pino / Pin | Tipo / Type |
-| :--- | :--- | :--- |
-| **RPM Signal (Crank)** | D21 | Entrada (Interrupt) |
-| **Injector Out** | D22 | Saída (MOSFET Driver) |
-| **Ignition Coil A** | D40 | Cilindros 1-4 |
-| **Ignition Coil B** | D38 | Cilindros 2-3 |
-| **MAP Sensor** | A4 | Analógica (0-5V) |
-| **TPS Sensor** | A3 | Analógica (0-5V) |
-| **ECT (Temp)** | A1 | Analógica (NTC 10k) |
-| **Battery Voltage** | A5 | Analógica (Divisor) |
-| **Eletroventilador** | D47 | Saída (Relé) |
-| **LCD Pins** | 8, 9, 4, 5, 6, 7 | Interface 4-bits |
+|:-------------------|:-----------|:------------|
+| **RPM Signal (Crank)** | D21 | Input (Interrupt) |
+| **Injector Out** | D22 | Output (MOSFET Driver) |
+| **Ignition Coil A** | D40 | Cylinders 1-4 |
+| **Ignition Coil B** | D38 | Cylinders 2-3 |
+| **MAP Sensor** | A4 | Analog (0-5V) |
+| **TPS Sensor** | A3 | Analog (0-5V) |
+| **ECT (Temp)** | A1 | Analog (NTC 10k) |
+| **Battery Voltage** | A5 | Analog (Divider) |
+| **Cooling Fan** | D47 | Output (Relay) |
+| **LCD Pins** | 8, 9, 4, 5, 6, 7 | 4-bit Interface |
 
 ---
 
-### ⚠️ Disclaimer
+## ⚠️ Disclaimer
 O ajuste de parâmetros do motor pode resultar em **danos mecânicos graves**. Este projeto tem fins educacionais. Use por sua conta e risco.  
 Adjusting engine parameters can result in **serious mechanical damage**. This project is for educational purposes. Use at your own risk.
