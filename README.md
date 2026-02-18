@@ -210,20 +210,20 @@ Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gra
 
 ---
 
-## 📌 Pinagem de Referência / Pinout (Mega 2560)
+## 📌 Pinagem de Referência (Mega 2560)
 
-| Função / Function | Pino / Pin | Tipo / Type |
-|:-------------------|:-----------|:------------|
-| **RPM Signal (Crank)** | D21 | Input (Interrupt) |
-| **Injector Out** | D22 | Output (MOSFET Driver) |
-| **Ignition Coil A** | D40 | Cylinders 1-4 |
-| **Ignition Coil B** | D38 | Cylinders 2-3 |
-| **MAP Sensor** | A4 | Analog (0-5V) |
-| **TPS Sensor** | A3 | Analog (0-5V) |
-| **ECT (Temp)** | A1 | Analog (NTC 10k) |
-| **Battery Voltage** | A5 | Analog (Divider) |
-| **Cooling Fan** | D47 | Output (Relay) |
-| **LCD Pins** | 8, 9, 4, 5, 6, 7 | 4-bit Interface |
+| Função | Pino | Tipo |
+|:-------|:-----|:-----|
+| **Sinal RPM (Virabrequim)** | D21 | Entrada (Interrupção) |
+| **Saída Injetor** | D22 | Saída (Driver MOSFET) |
+| **Bobina de Ignição A** | D40 | Cilindros 1-4 |
+| **Bobina de Ignição B** | D38 | Cilindros 2-3 |
+| **Sensor MAP** | A4 | Analógico (0-5V) |
+| **Sensor TPS** | A3 | Analógico (0-5V) |
+| **Temperatura do Motor (ECT)** | A1 | Analógico (NTC 10k) |
+| **Tensão da Bateria** | A5 | Analógico (Divisor) |
+| **Eletroventilador** | D47 | Saída (Relé) |
+| **Pinos do LCD** | 8, 9, 4, 5, 6, 7 | Interface 4-bits |
 
 ---
 
