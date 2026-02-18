@@ -191,6 +191,42 @@ Para proteger os dados, o sistema utiliza um fluxo de confirmação antes de gra
 
 ---
 
+## 🎯 Dicas de Uso
+
+* **No MONITORAMENTO**, use **◀️** e **▶️** para alternar entre as 4 telas rapidamente.
+* **Nos MAPAS**, pressione **SELECT** sobre o valor desejado e segure **🔼/🔽** para incremento rápido.
+* **Sempre confirme** as alterações críticas na tela "ITEM CRITICO!!" para evitar perda de dados.
+* **No VENTILADOR**, o modo MANUAL só aparece após desabilitar o AUTO.
+* **Calibração MAP** deve ser feita com o motor desligado, chave ligada.
+
+---
+
+## 📂 Estrutura de Arquivos
+- `Density_EFI.ino`: Orquestrador principal e lógica de interface.
+- `Crank.cpp/h`: Gestão de interrupções, RPM e sincronismo de dentes.
+- `IgnitionControl.cpp/h`: Lógica não-bloqueante para avanço e dwell.
+- `Injector.cpp/h`: Cálculo de pulse-width e Enriquecimento por Aceleração (AE_tps).
+- `DashV1.py`: Interface gráfica Python para telemetria.
+
+---
+
+## 📌 Pinagem de Referência / Pinout (Mega 2560)
+
+| Função / Function | Pino / Pin | Tipo / Type |
+|:-------------------|:-----------|:------------|
+| **RPM Signal (Crank)** | D21 | Input (Interrupt) |
+| **Injector Out** | D22 | Output (MOSFET Driver) |
+| **Ignition Coil A** | D40 | Cylinders 1-4 |
+| **Ignition Coil B** | D38 | Cylinders 2-3 |
+| **MAP Sensor** | A4 | Analog (0-5V) |
+| **TPS Sensor** | A3 | Analog (0-5V) |
+| **ECT (Temp)** | A1 | Analog (NTC 10k) |
+| **Battery Voltage** | A5 | Analog (Divider) |
+| **Cooling Fan** | D47 | Output (Relay) |
+| **LCD Pins** | 8, 9, 4, 5, 6, 7 | 4-bit Interface |
+
+---
+
 ## 🗺️ Menu Structure (English)
 
 ```mermaid
