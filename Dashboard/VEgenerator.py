@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog
 import numpy as np
 import datetime
 
@@ -27,19 +27,28 @@ class VEGeneratorApp:
                  font=("Courier New", 10, "italic"),
                  fg="#00ffcc", bg="#111").pack(pady=(0, 10))
 
+        # Definição dos campos
         self.inputs = [
             ("RPM Marcha Lenta", "800"),
             ("MAP Marcha Lenta (kPa)", "40"),
+            ("MAP Mínimo (kPa)", "30"),
             ("Limite Máximo RPM", "6500"),
             ("RPM Torque Máximo", "4000"),
             ("Deslocamento (Litros)", "1.8"),
+            ("VE Máximo (%)", "95"),
             ("Pressão Turbo (BAR)", "0.0"),
-            ("Tipo de Admissão (0=TBI,1=ITB)", "0"),
-            ("Modo de Carga (0=MAP,1=TPS)", "0")
         ]
 
-        self.entries = {}
+        # Campos com opções (combobox)
+        self.combo_fields = {
+            "Tipo de Admissão": {"options": ["TBI comum", "ITB (Throttle body)"], "default": "TBI comum", "map": {"TBI comum": 0, "ITB (Throttle body)": 1}},
+            "Modo de Carga": {"options": ["MAP", "TPS"], "default": "MAP", "map": {"MAP": 0, "TPS": 1}}
+        }
 
+        self.entries = {}      # para Entry normais
+        self.comboboxes = {}   # para Combobox
+
+        # Criar campos Entry normais
         for label_text, default_val in self.inputs:
             frame = tk.Frame(left_frame, bg="#111")
             frame.pack(fill="x", padx=10, pady=4)
@@ -53,6 +62,21 @@ class VEGeneratorApp:
 
             self.entries[label_text] = ent
 
+        # Criar campos Combobox
+        for field_name, config in self.combo_fields.items():
+            frame = tk.Frame(left_frame, bg="#111")
+            frame.pack(fill="x", padx=10, pady=4)
+
+            tk.Label(frame, text=field_name,
+                     fg="white", bg="#111", anchor="w").pack()
+
+            combo = ttk.Combobox(frame, values=config["options"], state="readonly", background="#222")
+            combo.set(config["default"])
+            combo.pack(fill="x")
+
+            self.comboboxes[field_name] = combo
+
+        # Botão gerar
         tk.Button(left_frame,
                   text="GERAR TABELA",
                   command=self.gerar_tudo,
@@ -85,17 +109,29 @@ class VEGeneratorApp:
 
     # =========================
     def calcular_matriz(self):
+        # Lê valores dos Entry
         d = {k: float(v.get()) for k, v in self.entries.items()}
 
-        modo = int(d["Modo de Carga (0=MAP,1=TPS)"])
-        tipo_adm = int(d["Tipo de Admissão (0=TBI,1=ITB)"])
+        # Lê valores dos Combobox (converte para inteiro)
+        modo_str = self.comboboxes["Modo de Carga"].get()
+        tipo_adm_str = self.comboboxes["Tipo de Admissão"].get()
 
-        map_min = max(30, d["MAP Marcha Lenta (kPa)"])
+        modo = self.combo_fields["Modo de Carga"]["map"][modo_str]
+        tipo_adm = self.combo_fields["Tipo de Admissão"]["map"][tipo_adm_str]
+
+        # MAP mínimo definido pelo usuário
+        map_min = max(10, d["MAP Mínimo (kPa)"])
+        map_idle = d["MAP Marcha Lenta (kPa)"]  # não usado diretamente no eixo, mas pode ser usado futuramente
         map_max = int((1.0 + d["Pressão Turbo (BAR)"]) * 100)
+
+        # Garantir que map_min não ultrapasse map_max
+        if map_min >= map_max:
+            map_min = max(10, map_max - 10)
+            messagebox.showwarning("Aviso", "MAP mínimo ajustado para menos que MAP máximo.")
 
         eixo_rpm = np.linspace(d["RPM Marcha Lenta"], d["Limite Máximo RPM"], 16).astype(int)
 
-        # eixo carga
+        # Eixo carga
         if modo == 0:
             eixo_carga = np.linspace(map_min, map_max, 16).astype(int)
         else:
@@ -103,11 +139,16 @@ class VEGeneratorApp:
 
         matriz = np.zeros((16, 16))
 
-        ve_max = 85
+        ve_max_base = d["VE Máximo (%)"]
+        desloc = d["Deslocamento (Litros)"]
+        fator_desloc = 1.0 + (desloc - 1.8) * 0.05
+        fator_desloc = np.clip(fator_desloc, 0.85, 1.15)
+
+        ve_max = ve_max_base * fator_desloc
+
         fator_admissao = 0.95 if tipo_adm == 0 else 1.05
 
         for i, rpm in enumerate(eixo_rpm):
-
             if rpm <= d["RPM Torque Máximo"]:
                 fator_rpm = 0.6 + 0.4 * (rpm / d["RPM Torque Máximo"])
             else:
@@ -115,39 +156,33 @@ class VEGeneratorApp:
                 fator_rpm = 1.0 - (0.25 * queda)
 
             for j, carga_val in enumerate(eixo_carga):
-
-                # =========================
-                # CÁLCULO DE CARGA
-                # =========================
-                if modo == 0:
-                    carga = carga_val / map_max
-                else:
-                    carga = (carga_val / 100.0)
-
-                    # ITB responde mais agressivo no TPS
+                if modo == 0:  # MAP
+                    carga_norm = (carga_val - map_min) / (map_max - map_min)
+                    carga_norm = np.clip(carga_norm, 0.0, 1.0)
+                else:  # TPS
+                    carga_norm = carga_val / 100.0
                     if tipo_adm == 1:
-                        carga = carga ** 1.3
+                        carga_norm = carga_norm ** 1.3
                     else:
-                        carga = carga ** 1.1
+                        carga_norm = carga_norm ** 1.1
 
-                # =========================
-                # CURVA DE CARGA
-                # =========================
-                if carga < 0.4:
-                    fator_carga = 0.45 + (carga * 0.8)
-                elif carga < 0.7:
-                    fator_carga = 0.65 + (carga * 0.5)
-                else:
-                    fator_carga = 0.85 + (carga * 0.3)
+                # Fator de carga com curva suave
+                fator_carga = 0.35 + 0.65 * (carga_norm ** 0.7)
+                if carga_norm > 0.95:
+                    fator_carga = min(fator_carga, 1.0)
 
                 ve = ve_max * fator_rpm * fator_carga * fator_admissao
-                matriz[j, i] = int(np.clip(ve, 25, 95))
+                matriz[j, i] = int(np.clip(ve, 20, ve_max_base * 1.1))
 
         return eixo_rpm, eixo_carga, matriz
 
     # =========================
     def gerar_tudo(self):
-        rpms, cargas, matriz = self.calcular_matriz()
+        try:
+            rpms, cargas, matriz = self.calcular_matriz()
+        except Exception as e:
+            messagebox.showerror("Erro no cálculo", str(e))
+            return
 
         for widget in self.frame_result.winfo_children():
             widget.destroy()
@@ -157,29 +192,27 @@ class VEGeneratorApp:
 
         linhas = 16
         colunas = 16
+        # Valor para escala de cor (usar VE máximo do cálculo)
+        ve_max_calc = np.max(matriz)
 
         for i in range(linhas + 1):
             for j in range(colunas + 1):
-
                 if i == linhas and j == 0:
                     text = ""
                     bg = "#333"
                     fg = "white"
-
                 elif i == linhas and j > 0:
                     text = str(rpms[j - 1])
                     bg = "#222"
                     fg = "white"
-
                 elif j == 0 and i < linhas:
                     text = str(cargas[linhas - 1 - i])
                     bg = "#222"
                     fg = "white"
-
                 else:
                     val = int(matriz[linhas - 1 - i][j - 1])
                     text = str(val)
-                    bg = self.get_color(val)
+                    bg = self.get_color(val, vmin=20, vmax=ve_max_calc)
                     fg = "black"
 
                 tk.Label(
@@ -203,7 +236,6 @@ class VEGeneratorApp:
                 defaultextension=".table",
                 filetypes=[("VEX Table", "*.table")]
             )
-
             if not file_path:
                 return
 
@@ -234,7 +266,6 @@ class VEGeneratorApp:
                 f.write('</table>\n</tableData>')
 
             messagebox.showinfo("Sucesso", "Tabela gerada com sucesso!")
-
         except Exception as e:
             messagebox.showerror("Erro", str(e))
 
