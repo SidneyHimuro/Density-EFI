@@ -1,4 +1,4 @@
-# 🏎️ Density EFI - Engine Management System (v1.1)
+# 🏎️ Density EFI - Engine Management System (v1.0)
 
 [Read in English](#english) | [Ler em Português](#português)
 
