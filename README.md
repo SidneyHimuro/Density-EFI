@@ -4,6 +4,21 @@
 
 ---
 
+## ⚠️ **AVISO IMPORTANTE / IMPORTANT WARNING**
+
+> **🚨 ESTE PROJETO ESTÁ EM FASE DE TESTES DE BANCADA APENAS**
+> 
+> **🇺🇸 This project is currently in BENCH TESTING phase only**
+> 
+> **❌ NÃO INSTALAR EM MOTORES OU VEÍCULOS DE RUA**
+> **❌ DO NOT install on engines or street vehicles**
+> 
+> *O sistema ainda não foi validado para uso em condições reais de operação. A instalação em veículos pode resultar em danos materiais, acidentes ou lesões graves.*
+> 
+> *The system has not been validated for real operating conditions. Installation in vehicles may result in property damage, accidents, or serious injury.*
+
+---
+
 ### 💻 Layout Hardware Density EFI V1.0 
 ![Layout Hardware](images/DensityEFI_V1.png)
 
@@ -36,6 +51,27 @@
 #### 📊 Interface and Telemetry
 * **Dynamic HMI:** 16x2 LCD display with 4 monitoring screens (RPM, MAP, TPS, Injection, Advance, Temperature).
 * **Dash Software:** Serial telemetry (115200 baud) compatible with Python/Plotly dashboards.
+
+---
+
+## 💬 Discussions
+
+We now have a **GitHub Discussions** space for the Density EFI community!
+
+Join us at: **[https://github.com/SidneyHimuro/Density-EFI/discussions](https://github.com/SidneyHimuro/Density-EFI/discussions)**
+
+Use this space for:
+- 💡 Technical discussions and ideas
+- 🔧 Crank decoder development
+- ⚙️ Ignition and injection strategies
+- 🎛️ STM32 / PIC / ESP32 platform evaluation
+- 🖥️ Hardware design and PCB layout
+- 📊 Datalogging and telemetry
+- 🐛 Bug investigation
+- 🚀 Feature suggestions
+- 📝 Testing results and logs
+
+> **Please keep discussions technical, organized, and respectful.**
 
 ---
 
@@ -273,6 +309,27 @@ O **Density EFI** é um sistema de controle de injeção e ignição eletrônica
 #### 📊 Interface e Telemetria
 * **HMI Dinâmica:** Display LCD 16x2 com 4 telas de monitoramento (RPM, MAP, TPS, Injeção, Avanço, Temperatura).
 * **Software Dash:** Telemetria via Serial (115200 baud) compatível com dashboards em Python/Plotly.
+
+---
+
+## 💬 Discussões
+
+Agora temos um espaço **GitHub Discussions** para a comunidade Density EFI!
+
+Participe em: **[https://github.com/SidneyHimuro/Density-EFI/discussions](https://github.com/SidneyHimuro/Density-EFI/discussions)**
+
+Use este espaço para:
+- 💡 Discussões técnicas e ideias
+- 🔧 Desenvolvimento do decoder de cranque
+- ⚙️ Estratégias de ignição e injeção
+- 🎛️ Avaliação de plataformas STM32 / PIC / ESP32
+- 🖥️ Design de hardware e layout de PCB
+- 📊 Datalogging e telemetria
+- 🐛 Investigação de bugs
+- 🚀 Sugestões de funcionalidades
+- 📝 Resultados de testes e logs
+
+> **Por favor, mantenha as discussões técnicas, organizadas e respeitosas.**
 
 ---
 
